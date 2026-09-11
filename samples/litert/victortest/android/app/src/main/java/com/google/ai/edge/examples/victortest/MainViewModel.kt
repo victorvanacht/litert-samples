@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,14 +16,18 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class MainViewModel(private val modelRunner: ModelRunner) : ViewModel() {
+class MainViewModel(
+  private val modelRunner: ModelRunner,
+  private val logFileWriter: LogFileWriter,
+) : ViewModel() {
   companion object {
     fun getFactory(context: Context) =
       object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
           if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-            return MainViewModel(ModelRunner(context)) as T
+            val appContext = context.applicationContext
+            return MainViewModel(ModelRunner(appContext), LogFileWriter(appContext)) as T
           }
           throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
@@ -35,6 +40,13 @@ class MainViewModel(private val modelRunner: ModelRunner) : ViewModel() {
     _uiState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
 
   init {
+    val logFileMessage = "Log file: ${logFileWriter.file.absolutePath}"
+    _uiState.update { it.copy(logLines = listOf(logFileMessage)) }
+    // Clear and write the first line in one coroutine so ordering on the IO dispatcher is guaranteed.
+    viewModelScope.launch(Dispatchers.IO) {
+      logFileWriter.clear()
+      logFileWriter.appendLine(logFileMessage)
+    }
     addModel(Uri.parse("asset://selfie_multiclass.tflite"), "selfie_multiclass.tflite")
   }
 
@@ -110,5 +122,6 @@ class MainViewModel(private val modelRunner: ModelRunner) : ViewModel() {
 
   private fun appendLog(line: String) {
     _uiState.update { it.copy(logLines = (it.logLines + line).takeLast(100)) }
+    viewModelScope.launch(Dispatchers.IO) { logFileWriter.appendLine(line) }
   }
 }
