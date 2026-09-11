@@ -69,6 +69,19 @@ android {
   }
 }
 
+tasks.configureEach {
+  if (name == "assembleDebug") {
+    doLast {
+      val defaultApk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+      val namedApk = layout.buildDirectory.file("outputs/apk/debug/victortest.apk").get().asFile
+      if (defaultApk.exists()) {
+        defaultApk.copyTo(namedApk, overwrite = true)
+        defaultApk.delete()
+      }
+    }
+  }
+}
+
 // Import DownloadModels task
 project.extensions.extraProperties["ASSET_DIR"] = "$projectDir/src/main/assets"
 apply(from = "download_model.gradle")
