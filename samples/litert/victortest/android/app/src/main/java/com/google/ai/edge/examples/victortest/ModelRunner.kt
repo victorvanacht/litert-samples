@@ -121,7 +121,7 @@ class ModelRunner(private val context: Context) {
     onLog: suspend (String) -> Unit,
   ): PreparedModel {
     onLog("Loading $displayName")
-    onLog("Accelerator: ${accelerator.name}")
+    onLog("Accelerator: ${accelerator.displayName}")
     val modelFile = copyToCache(uri, displayName)
     onLog("Copied model to cache: ${modelFile.name} (${modelFile.length()} bytes)")
 
@@ -131,8 +131,8 @@ class ModelRunner(private val context: Context) {
     val (inputShapes, outputShapes) = inspectTensorShapes(modelFile)
     onLog("Found ${inputShapes.size} input tensor(s), ${outputShapes.size} output tensor(s)")
 
-    onLog("Compiling model for ${accelerator.name}")
-    val model = CompiledModel.create(modelFile.absolutePath, CompiledModel.Options(accelerator.litertAccelerator))
+    onLog("Compiling model for ${accelerator.displayName}")
+    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions())
     onLog("Compiled model")
 
     val tensorDescriptions =
@@ -199,9 +199,20 @@ class ModelRunner(private val context: Context) {
   }
 }
 
-enum class AcceleratorChoice(val litertAccelerator: com.google.ai.edge.litert.Accelerator) {
-  CPU(com.google.ai.edge.litert.Accelerator.CPU),
-  GPU(com.google.ai.edge.litert.Accelerator.GPU),
+enum class AcceleratorChoice(
+  val litertAccelerator: com.google.ai.edge.litert.Accelerator,
+  val displayName: String,
+  val gpuPrecision: CompiledModel.GpuOptions.Precision? = null,
+) {
+  CPU(com.google.ai.edge.litert.Accelerator.CPU, "CPU"),
+  GPU_FP32(com.google.ai.edge.litert.Accelerator.GPU, "GPU-FP32", CompiledModel.GpuOptions.Precision.FP32),
+  GPU_FP16(com.google.ai.edge.litert.Accelerator.GPU, "GPU-FP16", CompiledModel.GpuOptions.Precision.FP16);
+
+  fun toCompiledModelOptions(): CompiledModel.Options {
+    val options = CompiledModel.Options(litertAccelerator)
+    gpuPrecision?.let { options.gpuOptions = CompiledModel.GpuOptions(precision = it) }
+    return options
+  }
 }
 
 enum class RunMode {

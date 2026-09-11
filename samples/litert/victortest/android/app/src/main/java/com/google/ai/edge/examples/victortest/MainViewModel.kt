@@ -90,7 +90,7 @@ class MainViewModel(
 
   fun selectAccelerator(accelerator: AcceleratorChoice) {
     _uiState.update { it.copy(accelerator = accelerator, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
-    appendLog("Selected accelerator: ${accelerator.name}")
+    appendLog("Selected accelerator: ${accelerator.displayName}")
   }
 
   fun selectRunMode(mode: RunMode) {

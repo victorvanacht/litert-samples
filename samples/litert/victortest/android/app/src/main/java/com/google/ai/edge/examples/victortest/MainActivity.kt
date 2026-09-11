@@ -176,11 +176,11 @@ private fun AcceleratorSelector(
   var expanded by remember { mutableStateOf(false) }
   Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
     Text("Accelerator")
-    OutlinedButton(onClick = { expanded = true }) { Text(selected.name) }
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.displayName) }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
       AcceleratorChoice.entries.forEach { accelerator ->
         DropdownMenuItem(onClick = { onSelect(accelerator); expanded = false }) {
-          Text(accelerator.name)
+          Text(accelerator.displayName)
         }
       }
     }
