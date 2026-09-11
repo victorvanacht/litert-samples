@@ -57,6 +57,10 @@ class ModelRunner(private val context: Context) {
         iteration++
         val startNanos = System.nanoTime()
         model.run(inputBuffers, outputBuffers)
+        // Read back every output, like the working image_segmentation sample does. Skipping this
+        // let the GPU backend enqueue work unbounded with no synchronization, which is what
+        // triggered the native driver crash under a tight loop.
+        outputBuffers.forEachIndexed { index, buffer -> readAndDiscardOutput(buffer, outputShapes[index]) }
         val elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000
         lastResult = ModelRunResult(displayName, elapsedMillis, inputDescriptions + outputDescriptions)
         onLog("Inference #$iteration: $elapsedMillis ms")
@@ -88,6 +92,18 @@ class ModelRunner(private val context: Context) {
         TensorShape(tensor.shape(), tensor.dataType(), tensor.numElements())
       }
       return inputs to outputs
+    }
+  }
+
+  /** Forces GPU readback/sync every iteration, mirroring the working image_segmentation sample. */
+  private fun readAndDiscardOutput(buffer: TensorBuffer, shape: TensorShape) {
+    when (shape.dataType) {
+      DataType.FLOAT32 -> buffer.readFloat()
+      DataType.INT32 -> buffer.readInt()
+      DataType.UINT8, DataType.INT8 -> buffer.readInt8()
+      DataType.BOOL -> buffer.readBoolean()
+      DataType.INT64 -> buffer.readLong()
+      else -> error("Unsupported output tensor type: ${shape.dataType}")
     }
   }
 

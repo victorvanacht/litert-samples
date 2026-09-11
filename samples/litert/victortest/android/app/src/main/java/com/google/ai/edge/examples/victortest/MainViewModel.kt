@@ -2,6 +2,7 @@ package com.google.ai.edge.examples.victortest
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -40,12 +41,21 @@ class MainViewModel(
     _uiState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
 
   init {
-    val logFileMessage = "Log file: ${logFileWriter.file.absolutePath}"
-    _uiState.update { it.copy(logLines = listOf(logFileMessage)) }
-    // Clear and write the first line in one coroutine so ordering on the IO dispatcher is guaranteed.
+    // Read the previous session's tail, then clear and seed the file, all on the IO dispatcher
+    // so ordering is guaranteed and disk access never touches the main thread.
     viewModelScope.launch(Dispatchers.IO) {
+      val previousLastLine = logFileWriter.readLastLine()
       logFileWriter.clear()
-      logFileWriter.appendLine(logFileMessage)
+
+      val startupLines = buildList {
+        add("Device: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.HARDWARE}), Android ${Build.VERSION.RELEASE}")
+        if (previousLastLine != null && previousLastLine != "Stopped" && !previousLastLine.startsWith("Error:")) {
+          add("Previous session did not exit cleanly, last line was: \"$previousLastLine\" (possible crash - check adb logcat -b crash)")
+        }
+        add("Log file: ${logFileWriter.file.absolutePath}")
+      }
+      startupLines.forEach { logFileWriter.appendLine(it) }
+      _uiState.update { it.copy(logLines = startupLines) }
     }
     addModel(Uri.parse("asset://selfie_multiclass.tflite"), "selfie_multiclass.tflite")
   }

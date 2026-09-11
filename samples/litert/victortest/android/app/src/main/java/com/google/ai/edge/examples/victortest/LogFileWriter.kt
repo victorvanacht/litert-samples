@@ -7,6 +7,9 @@ import java.io.File
 class LogFileWriter(context: Context) {
   val file: File = File(context.getExternalFilesDir(null), "victortest.log")
 
+  /** Last line of the previous session, read before it gets cleared; null if no prior log exists. */
+  fun readLastLine(): String? = if (file.exists()) file.readLines().lastOrNull { it.isNotBlank() } else null
+
   fun clear() {
     file.writeText("")
   }
