@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
           onChooseModel = { modelPicker.launch(arrayOf("application/octet-stream", "application/x-tflite", "*/*")) },
           onSelectModel = viewModel::selectModel,
           onSelectAccelerator = viewModel::selectAccelerator,
+          onSelectRunMode = viewModel::selectRunMode,
           onRunModel = viewModel::toggleModelRun,
         )
       }
@@ -87,15 +88,20 @@ private fun ModelRunnerScreen(
   onChooseModel: () -> Unit,
   onSelectModel: (String) -> Unit,
   onSelectAccelerator: (AcceleratorChoice) -> Unit,
+  onSelectRunMode: (RunMode) -> Unit,
   onRunModel: () -> Unit,
 ) {
   Column(modifier = Modifier.fillMaxSize()) {
     TopAppBar(title = { Text("victortest") }, backgroundColor = MaterialTheme.colors.secondary)
-    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+      modifier = Modifier.padding(20.dp).verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
       Text("LiteRT CompiledModel runner", style = MaterialTheme.typography.h6)
       Text("Select a .tflite file. Random input tensors are generated from its tensor metadata; outputs are discarded.")
       ModelSelector(uiState, onChooseModel, onSelectModel)
       AcceleratorSelector(uiState.accelerator, onSelectAccelerator)
+      RunModeSelector(uiState.runMode, onSelectRunMode)
       Button(
         onClick = onRunModel,
         enabled = uiState.selectedModelId != null,
@@ -103,11 +109,19 @@ private fun ModelRunnerScreen(
       ) { Text(if (uiState.isRunning) "Stop running model" else "Run model") }
       LogPanel(uiState.logLines)
       Box(
-        modifier = Modifier.fillMaxWidth().weight(1f),
+        modifier = Modifier.fillMaxWidth().height(220.dp),
         contentAlignment = Alignment.Center,
       ) {
-        uiState.inferenceTime?.let {
-          Text("$it ms", fontSize = 64.sp, style = MaterialTheme.typography.h3)
+        when (uiState.runMode) {
+          RunMode.SYNCHRONOUS ->
+            uiState.inferenceTime?.let { Text("$it ms", fontSize = 64.sp, style = MaterialTheme.typography.h3) }
+          RunMode.ASYNCHRONOUS ->
+            uiState.inferencesPerSecond?.let { rate ->
+              Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("%.1f inferences/s".format(rate), fontSize = 48.sp, style = MaterialTheme.typography.h4)
+                Text("avg %.2f ms/inference".format(1000.0 / rate), fontSize = 24.sp)
+              }
+            }
         }
       }
       uiState.tensorDescriptions.forEach { Text(it) }
@@ -130,6 +144,25 @@ private fun LogPanel(logLines: List<String>) {
     } else {
       logLines.forEach { line ->
         Text("> $line", color = Color(0xFFB5CEA8), fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+      }
+    }
+  }
+}
+
+@Composable
+private fun RunModeSelector(
+  selected: RunMode,
+  onSelect: (RunMode) -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text("Mode")
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.name) }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      RunMode.entries.forEach { mode ->
+        DropdownMenuItem(onClick = { onSelect(mode); expanded = false }) {
+          Text(mode.name)
+        }
       }
     }
   }

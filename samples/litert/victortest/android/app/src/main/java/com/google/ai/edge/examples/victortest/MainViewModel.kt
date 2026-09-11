@@ -22,6 +22,8 @@ class MainViewModel(
   private val logFileWriter: LogFileWriter,
 ) : ViewModel() {
   companion object {
+    private const val ASYNC_CONCURRENCY = 5
+
     fun getFactory(context: Context) =
       object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
@@ -67,6 +69,7 @@ class MainViewModel(
         models = (state.models + option).distinctBy { it.id },
         selectedModelId = option.id,
         inferenceTime = null,
+        inferencesPerSecond = null,
         tensorDescriptions = emptyList(),
       )
     }
@@ -74,14 +77,25 @@ class MainViewModel(
 
   fun selectModel(id: String) {
     _uiState.update {
-      it.copy(selectedModelId = id, inferenceTime = null, tensorDescriptions = emptyList(), logLines = emptyList())
+      it.copy(
+        selectedModelId = id,
+        inferenceTime = null,
+        inferencesPerSecond = null,
+        tensorDescriptions = emptyList(),
+        logLines = emptyList(),
+      )
     }
     appendLog("Selected model: ${_uiState.value.models.firstOrNull { it.id == id }?.displayName}")
   }
 
   fun selectAccelerator(accelerator: AcceleratorChoice) {
-    _uiState.update { it.copy(accelerator = accelerator, inferenceTime = null, logLines = emptyList()) }
+    _uiState.update { it.copy(accelerator = accelerator, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected accelerator: ${accelerator.name}")
+  }
+
+  fun selectRunMode(mode: RunMode) {
+    _uiState.update { it.copy(runMode = mode, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
+    appendLog("Selected run mode: ${mode.name}")
   }
 
   fun toggleModelRun() {
@@ -94,22 +108,41 @@ class MainViewModel(
     }
 
     val option = _uiState.value.models.firstOrNull { it.id == _uiState.value.selectedModelId } ?: return
+    val mode = _uiState.value.runMode
     runJob = viewModelScope.launch {
       _uiState.update { it.copy(isRunning = true, errorMessage = null) }
-      appendLog("Starting continuous run")
+      appendLog("Starting $mode run")
       try {
-        modelRunner.runContinuously(
-          option.uri,
-          option.displayName,
-          _uiState.value.accelerator,
-          onLog = ::appendLog,
-        ) { result ->
-          _uiState.update {
-            it.copy(
-              inferenceTime = result.inferenceTimeMillis,
-              tensorDescriptions = result.tensorDescriptions,
-            )
-          }
+        when (mode) {
+          RunMode.SYNCHRONOUS ->
+            modelRunner.runSynchronous(
+              option.uri,
+              option.displayName,
+              _uiState.value.accelerator,
+              onLog = ::appendLog,
+            ) { result ->
+              _uiState.update {
+                it.copy(
+                  inferenceTime = result.inferenceTimeMillis,
+                  tensorDescriptions = result.tensorDescriptions,
+                )
+              }
+            }
+          RunMode.ASYNCHRONOUS ->
+            modelRunner.runAsynchronous(
+              option.uri,
+              option.displayName,
+              _uiState.value.accelerator,
+              concurrency = ASYNC_CONCURRENCY,
+              onLog = ::appendLog,
+            ) { result ->
+              _uiState.update {
+                it.copy(
+                  inferencesPerSecond = result.inferencesPerSecond,
+                  tensorDescriptions = result.tensorDescriptions,
+                )
+              }
+            }
         }
       } catch (error: CancellationException) {
         throw error
