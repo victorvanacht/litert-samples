@@ -200,17 +200,42 @@ class ModelRunner(private val context: Context) {
 }
 
 enum class AcceleratorChoice(
-  val litertAccelerator: com.google.ai.edge.litert.Accelerator,
   val displayName: String,
+  val litertAccelerator: com.google.ai.edge.litert.Accelerator,
   val gpuPrecision: CompiledModel.GpuOptions.Precision? = null,
+  val gpuBackend: CompiledModel.GpuOptions.Backend? = null,
 ) {
-  CPU(com.google.ai.edge.litert.Accelerator.CPU, "CPU"),
-  GPU_FP32(com.google.ai.edge.litert.Accelerator.GPU, "GPU-FP32", CompiledModel.GpuOptions.Precision.FP32),
-  GPU_FP16(com.google.ai.edge.litert.Accelerator.GPU, "GPU-FP16", CompiledModel.GpuOptions.Precision.FP16);
+  CPU("CPU", com.google.ai.edge.litert.Accelerator.CPU),
+  GPU_FP32_OPENCL(
+    "GPU-FP32-OPENCL",
+    com.google.ai.edge.litert.Accelerator.GPU,
+    CompiledModel.GpuOptions.Precision.FP32,
+    CompiledModel.GpuOptions.Backend.OPENCL,
+  ),
+  GPU_FP32_OPENGL(
+    "GPU-FP32-OPENGL",
+    com.google.ai.edge.litert.Accelerator.GPU,
+    CompiledModel.GpuOptions.Precision.FP32,
+    CompiledModel.GpuOptions.Backend.OPENGL,
+  ),
+  GPU_FP16_OPENCL(
+    "GPU-FP16-OPENCL",
+    com.google.ai.edge.litert.Accelerator.GPU,
+    CompiledModel.GpuOptions.Precision.FP16,
+    CompiledModel.GpuOptions.Backend.OPENCL,
+  ),
+  GPU_FP16_OPENGL(
+    "GPU-FP16-OPENGL",
+    com.google.ai.edge.litert.Accelerator.GPU,
+    CompiledModel.GpuOptions.Precision.FP16,
+    CompiledModel.GpuOptions.Backend.OPENGL,
+  );
 
   fun toCompiledModelOptions(): CompiledModel.Options {
     val options = CompiledModel.Options(litertAccelerator)
-    gpuPrecision?.let { options.gpuOptions = CompiledModel.GpuOptions(precision = it) }
+    if (gpuPrecision != null || gpuBackend != null) {
+      options.gpuOptions = CompiledModel.GpuOptions(precision = gpuPrecision, backend = gpuBackend)
+    }
     return options
   }
 }
