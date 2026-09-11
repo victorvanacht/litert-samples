@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.examples.victortest.view.ApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -74,6 +75,9 @@ class MainActivity : ComponentActivity() {
           onChooseModel = { modelPicker.launch(arrayOf("application/octet-stream", "application/x-tflite", "*/*")) },
           onSelectModel = viewModel::selectModel,
           onSelectAccelerator = viewModel::selectAccelerator,
+          onSelectGpuPrecision = viewModel::selectGpuPrecision,
+          onSelectGpuBackend = viewModel::selectGpuBackend,
+          onSelectGpuPriority = viewModel::selectGpuPriority,
           onSelectRunMode = viewModel::selectRunMode,
           onRunModel = viewModel::toggleModelRun,
         )
@@ -88,6 +92,9 @@ private fun ModelRunnerScreen(
   onChooseModel: () -> Unit,
   onSelectModel: (String) -> Unit,
   onSelectAccelerator: (AcceleratorChoice) -> Unit,
+  onSelectGpuPrecision: (CompiledModel.GpuOptions.Precision) -> Unit,
+  onSelectGpuBackend: (CompiledModel.GpuOptions.Backend) -> Unit,
+  onSelectGpuPriority: (CompiledModel.GpuOptions.Priority) -> Unit,
   onSelectRunMode: (RunMode) -> Unit,
   onRunModel: () -> Unit,
 ) {
@@ -100,8 +107,13 @@ private fun ModelRunnerScreen(
       Text("LiteRT CompiledModel runner", style = MaterialTheme.typography.h6)
       Text("Select a .tflite file. Random input tensors are generated from its tensor metadata; outputs are discarded.")
       ModelSelector(uiState, onChooseModel, onSelectModel)
-      AcceleratorSelector(uiState.accelerator, onSelectAccelerator)
       RunModeSelector(uiState.runMode, onSelectRunMode)
+      AcceleratorSelector(uiState.accelerator, onSelectAccelerator)
+      if (uiState.accelerator != AcceleratorChoice.CPU) {
+        GpuPrecisionSelector(uiState.gpuPrecision, onSelectGpuPrecision)
+        GpuBackendSelector(uiState.gpuBackend, onSelectGpuBackend)
+        GpuPrioritySelector(uiState.gpuPriority, onSelectGpuPriority)
+      }
       Button(
         onClick = onRunModel,
         enabled = uiState.selectedModelId != null,
@@ -162,6 +174,63 @@ private fun RunModeSelector(
       RunMode.entries.forEach { mode ->
         DropdownMenuItem(onClick = { onSelect(mode); expanded = false }) {
           Text(mode.name)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun GpuPrecisionSelector(
+  selected: CompiledModel.GpuOptions.Precision,
+  onSelect: (CompiledModel.GpuOptions.Precision) -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text("GPU precision")
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.name) }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      CompiledModel.GpuOptions.Precision.entries.forEach { precision ->
+        DropdownMenuItem(onClick = { onSelect(precision); expanded = false }) {
+          Text(precision.name)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun GpuBackendSelector(
+  selected: CompiledModel.GpuOptions.Backend,
+  onSelect: (CompiledModel.GpuOptions.Backend) -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text("GPU backend")
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.name) }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      CompiledModel.GpuOptions.Backend.entries.forEach { backend ->
+        DropdownMenuItem(onClick = { onSelect(backend); expanded = false }) {
+          Text(backend.name)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun GpuPrioritySelector(
+  selected: CompiledModel.GpuOptions.Priority,
+  onSelect: (CompiledModel.GpuOptions.Priority) -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text("GPU priority")
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.name) }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      CompiledModel.GpuOptions.Priority.entries.forEach { priority ->
+        DropdownMenuItem(onClick = { onSelect(priority); expanded = false }) {
+          Text(priority.name)
         }
       }
     }

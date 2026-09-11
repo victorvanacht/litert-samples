@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.google.ai.edge.litert.CompiledModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -93,6 +94,21 @@ class MainViewModel(
     appendLog("Selected accelerator: ${accelerator.displayName}")
   }
 
+  fun selectGpuPrecision(precision: CompiledModel.GpuOptions.Precision) {
+    _uiState.update { it.copy(gpuPrecision = precision, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
+    appendLog("Selected GPU precision: ${precision.name}")
+  }
+
+  fun selectGpuBackend(backend: CompiledModel.GpuOptions.Backend) {
+    _uiState.update { it.copy(gpuBackend = backend, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
+    appendLog("Selected GPU backend: ${backend.name}")
+  }
+
+  fun selectGpuPriority(priority: CompiledModel.GpuOptions.Priority) {
+    _uiState.update { it.copy(gpuPriority = priority, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
+    appendLog("Selected GPU priority: ${priority.name}")
+  }
+
   fun selectRunMode(mode: RunMode) {
     _uiState.update { it.copy(runMode = mode, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected run mode: ${mode.name}")
@@ -119,6 +135,9 @@ class MainViewModel(
               option.uri,
               option.displayName,
               _uiState.value.accelerator,
+              _uiState.value.gpuPrecision,
+              _uiState.value.gpuBackend,
+              _uiState.value.gpuPriority,
               onLog = ::appendLog,
             ) { result ->
               _uiState.update {
@@ -133,6 +152,9 @@ class MainViewModel(
               option.uri,
               option.displayName,
               _uiState.value.accelerator,
+              _uiState.value.gpuPrecision,
+              _uiState.value.gpuBackend,
+              _uiState.value.gpuPriority,
               concurrency = ASYNC_CONCURRENCY,
               onLog = ::appendLog,
             ) { result ->

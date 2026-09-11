@@ -23,10 +23,13 @@ class ModelRunner(private val context: Context) {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    gpuPrecision: CompiledModel.GpuOptions.Precision,
+    gpuBackend: CompiledModel.GpuOptions.Backend,
+    gpuPriority: CompiledModel.GpuOptions.Priority,
     onLog: suspend (String) -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
-    val prepared = prepareModel(uri, displayName, accelerator, onLog)
+    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, onLog)
     try {
       val inputBuffers = prepared.model.createInputBuffers()
       val outputBuffers = prepared.model.createOutputBuffers()
@@ -62,11 +65,14 @@ class ModelRunner(private val context: Context) {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    gpuPrecision: CompiledModel.GpuOptions.Precision,
+    gpuBackend: CompiledModel.GpuOptions.Backend,
+    gpuPriority: CompiledModel.GpuOptions.Priority,
     concurrency: Int,
     onLog: suspend (String) -> Unit,
     onThroughput: suspend (ThroughputResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
-    val prepared = prepareModel(uri, displayName, accelerator, onLog)
+    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, onLog)
     try {
       val slots =
         List(concurrency) {
@@ -118,6 +124,9 @@ class ModelRunner(private val context: Context) {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    gpuPrecision: CompiledModel.GpuOptions.Precision,
+    gpuBackend: CompiledModel.GpuOptions.Backend,
+    gpuPriority: CompiledModel.GpuOptions.Priority,
     onLog: suspend (String) -> Unit,
   ): PreparedModel {
     onLog("Loading $displayName")
@@ -132,7 +141,7 @@ class ModelRunner(private val context: Context) {
     onLog("Found ${inputShapes.size} input tensor(s), ${outputShapes.size} output tensor(s)")
 
     onLog("Compiling model for ${accelerator.displayName}")
-    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions())
+    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions(gpuPrecision, gpuBackend, gpuPriority))
     onLog("Compiled model")
 
     val tensorDescriptions =
@@ -202,39 +211,18 @@ class ModelRunner(private val context: Context) {
 enum class AcceleratorChoice(
   val displayName: String,
   val litertAccelerator: com.google.ai.edge.litert.Accelerator,
-  val gpuPrecision: CompiledModel.GpuOptions.Precision? = null,
-  val gpuBackend: CompiledModel.GpuOptions.Backend? = null,
 ) {
   CPU("CPU", com.google.ai.edge.litert.Accelerator.CPU),
-  GPU_FP32_OPENCL(
-    "GPU-FP32-OPENCL",
-    com.google.ai.edge.litert.Accelerator.GPU,
-    CompiledModel.GpuOptions.Precision.FP32,
-    CompiledModel.GpuOptions.Backend.OPENCL,
-  ),
-  GPU_FP32_OPENGL(
-    "GPU-FP32-OPENGL",
-    com.google.ai.edge.litert.Accelerator.GPU,
-    CompiledModel.GpuOptions.Precision.FP32,
-    CompiledModel.GpuOptions.Backend.OPENGL,
-  ),
-  GPU_FP16_OPENCL(
-    "GPU-FP16-OPENCL",
-    com.google.ai.edge.litert.Accelerator.GPU,
-    CompiledModel.GpuOptions.Precision.FP16,
-    CompiledModel.GpuOptions.Backend.OPENCL,
-  ),
-  GPU_FP16_OPENGL(
-    "GPU-FP16-OPENGL",
-    com.google.ai.edge.litert.Accelerator.GPU,
-    CompiledModel.GpuOptions.Precision.FP16,
-    CompiledModel.GpuOptions.Backend.OPENGL,
-  );
+  GPU("GPU", com.google.ai.edge.litert.Accelerator.GPU);
 
-  fun toCompiledModelOptions(): CompiledModel.Options {
+  fun toCompiledModelOptions(
+    gpuPrecision: CompiledModel.GpuOptions.Precision,
+    gpuBackend: CompiledModel.GpuOptions.Backend,
+    gpuPriority: CompiledModel.GpuOptions.Priority,
+  ): CompiledModel.Options {
     val options = CompiledModel.Options(litertAccelerator)
-    if (gpuPrecision != null || gpuBackend != null) {
-      options.gpuOptions = CompiledModel.GpuOptions(precision = gpuPrecision, backend = gpuBackend)
+    if (litertAccelerator == com.google.ai.edge.litert.Accelerator.GPU) {
+      options.gpuOptions = CompiledModel.GpuOptions(precision = gpuPrecision, backend = gpuBackend, priority = gpuPriority)
     }
     return options
   }

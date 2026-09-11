@@ -4,6 +4,7 @@ import android.net.Uri
 import android.graphics.Color
 import androidx.camera.core.CameraSelector
 import androidx.compose.runtime.Immutable
+import com.google.ai.edge.litert.CompiledModel
 
 @Immutable
 data class UiState(
@@ -12,7 +13,10 @@ data class UiState(
   val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
   val models: List<ModelOption> = emptyList(),
   val selectedModelId: String? = null,
-  val accelerator: AcceleratorChoice = AcceleratorChoice.CPU,
+  val accelerator: AcceleratorChoice = AcceleratorChoice.GPU,
+  val gpuPrecision: CompiledModel.GpuOptions.Precision = CompiledModel.GpuOptions.Precision.FP16,
+  val gpuBackend: CompiledModel.GpuOptions.Backend = CompiledModel.GpuOptions.Backend.OPENCL,
+  val gpuPriority: CompiledModel.GpuOptions.Priority = CompiledModel.GpuOptions.Priority.HIGH,
   val runMode: RunMode = RunMode.SYNCHRONOUS,
   val inferenceTime: Long? = null,
   val inferencesPerSecond: Double? = null,
