@@ -14,7 +14,6 @@ enum class GpuPrecision {
   DEFAULT,
   FP16,
   FP32,
-  FP16_WITH_FP32_ACCUM,
 }
 
 enum class GpuBackend {
