@@ -7,7 +7,7 @@
 	"features": {
 		"ghcr.io/nordcominc/devcontainer-features/android-sdk:1": {},
 		"ghcr.io/Evit15/devcontainer-features/adb-fastboot:1": {}
-	}
+	},
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
@@ -16,7 +16,9 @@
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	// "postCreateCommand": "uname -a",
+	// The base image defaults SDKMAN's "current" Java to JDK 25, which the
+	// Android/Kotlin Gradle tooling in this repo rejects. Point it at JDK 21 instead.
+	"postCreateCommand": "ln -sfn /usr/local/sdkman/candidates/java/21.0.12+1-ms /usr/local/sdkman/candidates/java/current"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
