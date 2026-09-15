@@ -30,7 +30,17 @@ class NativeModelRunner(private val context: Context) {
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val modelFile = copyToCache(uri, displayName)
-    val handle = nativePrepare(modelFile.absolutePath, if (accelerator == AcceleratorChoice.GPU) 1 else 0)
+    val handle = nativePrepare(
+      modelFile.absolutePath,
+      if (accelerator == AcceleratorChoice.GPU) 1 else 0,
+      gpuPrecision.toNativeValue(),
+      gpuBackend.ordinal,
+      gpuPriority.ordinal,
+      gpuBufferStorageType.ordinal,
+      gpuPreferTextureWeights,
+      gpuConstantTensorSharing,
+      gpuInfiniteFloatCapping,
+    )
     try {
       val tensorDescriptions = nativeTensorDescriptions(handle).toList()
       onLog("Compiled model in C++")
@@ -64,7 +74,17 @@ class NativeModelRunner(private val context: Context) {
     onThroughput: suspend (ThroughputResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val modelFile = copyToCache(uri, displayName)
-    val handle = nativePrepare(modelFile.absolutePath, if (accelerator == AcceleratorChoice.GPU) 1 else 0)
+    val handle = nativePrepare(
+      modelFile.absolutePath,
+      if (accelerator == AcceleratorChoice.GPU) 1 else 0,
+      gpuPrecision.toNativeValue(),
+      gpuBackend.ordinal,
+      gpuPriority.ordinal,
+      gpuBufferStorageType.ordinal,
+      gpuPreferTextureWeights,
+      gpuConstantTensorSharing,
+      gpuInfiniteFloatCapping,
+    )
     try {
       val tensorDescriptions = nativeTensorDescriptions(handle).toList()
       onLog("Compiled model in C++")
@@ -80,7 +100,17 @@ class NativeModelRunner(private val context: Context) {
     }
   }
 
-  private external fun nativePrepare(modelPath: String, accelerator: Int): Long
+  private external fun nativePrepare(
+    modelPath: String,
+    accelerator: Int,
+    precision: Int,
+    backend: Int,
+    priority: Int,
+    storageType: Int,
+    preferTextureWeights: Boolean,
+    constantTensorSharing: Boolean,
+    infiniteFloatCapping: Boolean,
+  ): Long
 
   private external fun nativeTensorDescriptions(handle: Long): Array<String>
 
@@ -89,6 +119,12 @@ class NativeModelRunner(private val context: Context) {
   private external fun nativeRunConcurrent(handle: Long, concurrency: Int): Double
 
   private external fun nativeClose(handle: Long)
+
+  private fun GpuPrecision.toNativeValue() = when (this) {
+    GpuPrecision.DEFAULT -> 0
+    GpuPrecision.FP16 -> 1
+    GpuPrecision.FP32 -> 2
+  }
 
   private fun copyToCache(uri: Uri, displayName: String): File {
     val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
