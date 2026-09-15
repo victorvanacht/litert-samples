@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          package="com.google.ai.edge.examples.victortestcpp"
           xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Declare permissions -->
@@ -42,5 +41,9 @@
             </intent-filter>
         </activity>
     </application>
+
+    <instrumentation
+        android:name=".ShellBenchmarkInstrumentation"
+        android:targetPackage="com.google.ai.edge.examples.victortestcpp" />
 
 </manifest>

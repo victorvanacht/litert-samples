@@ -47,26 +47,29 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     try {
       val inputBuffers = prepared.model.createInputBuffers()
       val outputBuffers = prepared.model.createOutputBuffers()
-      onLog("Allocated ${inputBuffers.size} input buffer(s), ${outputBuffers.size} output buffer(s)")
-      writeInputs(inputBuffers, prepared.inputShapes, inputFileUri)
+      try {
+        onLog("Allocated ${inputBuffers.size} input buffer(s), ${outputBuffers.size} output buffer(s)")
+        writeInputs(inputBuffers, prepared.inputShapes, inputFileUri)
 
-      var iteration = 0
-      onLog("Starting synchronous inference loop")
-      while (currentCoroutineContext().isActive) {
-        iteration++
-        val captureOutput = outputFileUri != null
-        val startNanos = System.nanoTime()
-        prepared.model.run(inputBuffers, outputBuffers)
-        // Read back every output, like the working image_segmentation sample does. Skipping this
-        // let the GPU backend enqueue work unbounded with no synchronization.
-        val outputBytes = outputBuffers.mapIndexed { index, buffer -> readOutput(buffer, prepared.outputShapes[index], captureOutput) }
-        val elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000
-        if (outputFileUri != null) writeOutputsToUri(outputBytes.filterNotNull(), outputFileUri)
-        onLog("Inference #$iteration: $elapsedMillis ms")
-        onResult(ModelRunResult(displayName, elapsedMillis, prepared.tensorDescriptions))
+        var iteration = 0
+        onLog("Starting synchronous inference loop")
+        while (currentCoroutineContext().isActive) {
+          iteration++
+          val captureOutput = outputFileUri != null
+          val startNanos = System.nanoTime()
+          prepared.model.run(inputBuffers, outputBuffers)
+          // Read back every output, like the working image_segmentation sample does. Skipping this
+          // let the GPU backend enqueue work unbounded with no synchronization.
+          val outputBytes = outputBuffers.mapIndexed { index, buffer -> readOutput(buffer, prepared.outputShapes[index], captureOutput) }
+          val elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000
+          if (outputFileUri != null) writeOutputsToUri(outputBytes.filterNotNull(), outputFileUri)
+          onLog("Inference #$iteration: $elapsedMillis ms")
+          onResult(ModelRunResult(displayName, elapsedMillis, prepared.tensorDescriptions))
+        }
+      } finally {
+        inputBuffers.forEach { it.close() }
+        outputBuffers.forEach { it.close() }
       }
-      inputBuffers.forEach { it.close() }
-      outputBuffers.forEach { it.close() }
     } finally {
       prepared.cleanup()
     }

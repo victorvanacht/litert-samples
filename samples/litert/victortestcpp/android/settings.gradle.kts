@@ -51,15 +51,3 @@ include(":app")
 include(":model_runner_common")
 
 project(":model_runner_common").projectDir = File(rootDir, "../../model_runner_common")
-
-include(":selfie_multiclass_ai_pack")
-
-// TODO: b/391631148 - Put these feature modules for NPU in a shared top-level directory, e.g.
-// npu_runtime_libraries/.
-include(":runtime_strings")
-
-include(":qualcomm_runtime_v73")
-
-include(":qualcomm_runtime_v75")
-
-include(":qualcomm_runtime_v79")

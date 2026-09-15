@@ -57,7 +57,6 @@ android {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
   }
-  kotlinOptions { jvmTarget = "1.8" }
   buildFeatures { compose = true }
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 
@@ -68,6 +67,8 @@ android {
     disable.add("Aligned16KB")
   }
 }
+
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8) } }
 
 tasks.configureEach {
   if (name == "assembleDebug") {
@@ -103,9 +104,6 @@ dependencies {
   implementation(libs.litert) {
     exclude(group = "com.google.ai.edge.litert", module = "litert-support")
     exclude(group = "com.google.ai.edge.litert", module = "litert-support-api")
-  }
-  implementation(libs.litert.support) {
-    exclude(group = "com.google.ai.edge.litert", module = "litert-api")
   }
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.lifecycle)

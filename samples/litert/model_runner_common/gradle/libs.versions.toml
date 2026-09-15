@@ -15,7 +15,7 @@
 # Shared by the victortest and victortestcpp Gradle projects (see their settings.gradle.kts).
 
 [versions]
-agp = "8.9.1"
+agp = "8.13.0"
 coilCompose = "3.3.0"
 kotlin = "2.2.21"
 coreKtx = "1.17.0"
