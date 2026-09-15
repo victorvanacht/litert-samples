@@ -105,10 +105,13 @@ Expected<BufferSet> CreateBuffers(const CompiledModel& model) {
   return BufferSet{std::move(inputs), std::move(outputs)};
 }
 
-void RunBufferSet(Session& session, BufferSet& buffers) {
+void InitializeInputs(Session& session, BufferSet& buffers) {
   for (size_t i = 0; i < buffers.inputs.size(); ++i) {
     FillInput(buffers.inputs[i], session.input_types[i], session.input_elements[i]);
   }
+}
+
+void RunBufferSet(Session& session, BufferSet& buffers) {
   LITERT_ABORT_IF_ERROR(session.model.Run(buffers.inputs, buffers.outputs));
 
   for (TensorBuffer& output : buffers.outputs) {
@@ -167,6 +170,7 @@ Expected<std::unique_ptr<Session>> CreateSession(
   }
   LITERT_ASSIGN_OR_RETURN(session->synchronous_buffers,
                           CreateBuffers(session->model));
+  InitializeInputs(*session, session->synchronous_buffers);
   return session;
 }
 
@@ -221,6 +225,7 @@ extern "C" JNIEXPORT jdouble JNICALL NativeRunConcurrent(
   for (int i = 0; i < concurrency; ++i) {
     auto buffers = CreateBuffers(session->model);
     if (!buffers.HasValue()) std::abort();
+    InitializeInputs(*session, buffers.Value());
     slots.push_back(std::move(buffers.Value()));
   }
   const auto start = std::chrono::steady_clock::now();
