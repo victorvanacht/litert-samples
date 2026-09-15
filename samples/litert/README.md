@@ -2,6 +2,8 @@
 
 The `victortest` and `victortestcpp` Android apps expose self-targeting instrumentation entry points for automated latency testing from `adb shell`. The command-line interface mirrors the UI-configurable model runner options and returns an ordered, parseable result block.
 
+Each instrumentation run launches the app's normal foreground activity, scrolls down to the bottom of the screen content, and drives the same shared `MainViewModel` callbacks that back the UI controls. This keeps command-line benchmarks close to the manual UI path while still allowing scripts to set every option and read structured timing results.
+
 Use this interface for scripts that need to:
 
 - Install one or both sample apps.

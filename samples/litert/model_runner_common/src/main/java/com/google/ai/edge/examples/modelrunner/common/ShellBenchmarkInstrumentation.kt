@@ -19,14 +19,18 @@ package com.google.ai.edge.examples.modelrunner.common
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import com.google.ai.edge.litert.CompiledModel
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 abstract class ShellBenchmarkInstrumentation : Instrumentation() {
   abstract fun createModelRunner(context: Context): InferenceRunner
@@ -34,11 +38,20 @@ abstract class ShellBenchmarkInstrumentation : Instrumentation() {
   override fun onCreate(arguments: Bundle) {
     super.onCreate(arguments)
     start()
+    Thread { runBenchmarkAndFinish(arguments) }.start()
+  }
+
+  private fun runBenchmarkAndFinish(arguments: Bundle) {
     val results = Bundle()
     val resultCode = try {
       val config = ShellBenchmarkConfig.from(arguments)
-      val benchmark = runBlocking {
-        runShellBenchmark(createModelRunner(targetContext.applicationContext), config)
+      val activity = launchForegroundActivity()
+      val benchmark = try {
+        scrollToBottom(activity)
+        val request = ShellBenchmarkUiSession.start(config)
+        runBlocking { withTimeout(BENCHMARK_TIMEOUT_MILLIS) { request.result.await().getOrThrow() } }
+      } finally {
+        finishForegroundActivity(activity)
       }
       results.putString(REPORT_KEY_STREAMRESULT, formatSuccessResult(config, benchmark))
       Activity.RESULT_OK
@@ -50,8 +63,51 @@ abstract class ShellBenchmarkInstrumentation : Instrumentation() {
     finish(resultCode, results)
   }
 
+  private fun launchForegroundActivity(): Activity {
+    val launchIntent = requireNotNull(targetContext.packageManager.getLaunchIntentForPackage(targetContext.packageName)) {
+      "Unable to resolve launcher activity for ${targetContext.packageName}"
+    }
+    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    val activity = startActivitySync(launchIntent)
+    waitForIdleSync()
+    return activity
+  }
+
+  private fun finishForegroundActivity(activity: Activity) {
+    runOnMainSync { activity.finish() }
+    waitForIdleSync()
+  }
+
+  private fun scrollToBottom(activity: Activity) {
+    repeat(SCROLL_TO_BOTTOM_SWIPE_COUNT) { performScrollDownSwipe(activity) }
+  }
+
+  private fun performScrollDownSwipe(activity: Activity) {
+    val view = activity.window.decorView
+    val width = view.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels
+    val height = view.height.takeIf { it > 0 } ?: activity.resources.displayMetrics.heightPixels
+    val x = width / 2f
+    val startY = height * 0.85f
+    val endY = height * 0.15f
+    val downTime = SystemClock.uptimeMillis()
+    sendPointerSync(MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, startY, 0))
+    repeat(SWIPE_MOVE_STEPS) { index ->
+      val eventTime = downTime + ((index + 1) * SWIPE_DURATION_MILLIS / SWIPE_MOVE_STEPS)
+      val fraction = (index + 1).toFloat() / SWIPE_MOVE_STEPS
+      val y = startY + ((endY - startY) * fraction)
+      sendPointerSync(MotionEvent.obtain(downTime, eventTime, MotionEvent.ACTION_MOVE, x, y, 0))
+    }
+    val upTime = downTime + SWIPE_DURATION_MILLIS
+    sendPointerSync(MotionEvent.obtain(downTime, upTime, MotionEvent.ACTION_UP, x, endY, 0))
+    waitForIdleSync()
+  }
+
   private companion object {
     const val TAG = "ShellBenchmark"
+    const val BENCHMARK_TIMEOUT_MILLIS = 10 * 60 * 1000L
+    const val SWIPE_DURATION_MILLIS = 500L
+    const val SWIPE_MOVE_STEPS = 10
+    const val SCROLL_TO_BOTTOM_SWIPE_COUNT = 2
 
     fun formatSuccessResult(config: ShellBenchmarkConfig, benchmark: ShellBenchmarkResult): String {
       return buildString {

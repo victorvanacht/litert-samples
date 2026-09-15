@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.ai.edge.examples.modelrunner.common.MainViewModel
 import com.google.ai.edge.examples.modelrunner.common.ModelRunnerScreen
+import com.google.ai.edge.examples.modelrunner.common.ShellBenchmarkUiDriver
 import com.google.ai.edge.examples.modelrunner.common.view.ApplicationTheme
 
 // The Compose UI, UiState, and MainViewModel logic are shared with the victortest sample app in
@@ -84,6 +85,7 @@ class MainActivity : ComponentActivity() {
         }
       }
       ApplicationTheme {
+        ShellBenchmarkUiDriver(viewModel)
         ModelRunnerScreen(
           appName = "victortestcpp",
           uiState = uiState,

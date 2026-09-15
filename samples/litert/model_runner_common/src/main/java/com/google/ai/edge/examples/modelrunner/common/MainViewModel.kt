@@ -240,6 +240,76 @@ class MainViewModel(
     }
   }
 
+  suspend fun runShellBenchmarkFromUi(config: ShellBenchmarkConfig): ShellBenchmarkResult {
+    require(config.runMode == RunMode.SYNCHRONOUS) {
+      "run_mode=ASYNCHRONOUS reports throughput in the UI and is not supported for average latency benchmarking"
+    }
+
+    addModel(config.modelUri, config.modelDisplayName)
+    setInputFile(config.inputFileUri, config.inputFileUri?.lastPathSegment)
+    setOutputFile(config.outputFileUri, config.outputFileUri?.lastPathSegment)
+    selectRunMode(config.runMode)
+    selectAccelerator(config.accelerator)
+    selectGpuPrecision(config.gpuPrecision)
+    selectGpuBackend(config.gpuBackend)
+    selectGpuPriority(config.gpuPriority)
+    selectGpuBufferStorageType(config.gpuBufferStorageType)
+    setGpuPreferTextureWeights(config.gpuPreferTextureWeights)
+    setGpuConstantTensorSharing(config.gpuConstantTensorSharing)
+    setGpuInfiniteFloatCapping(config.gpuInfiniteFloatCapping)
+
+    val option = _uiState.value.models.firstOrNull { it.id == config.modelUri.toString() }
+      ?: error("Selected model is unavailable: ${config.modelUri}")
+    val inferenceTimes = mutableListOf<Long>()
+    var completedRuns = 0
+    var tensorDescriptions = emptyList<String>()
+    _uiState.update { it.copy(isRunning = true, errorMessage = null) }
+    appendLog("Starting UI-driven shell benchmark")
+    try {
+      modelRunner.runSynchronous(
+        option.uri,
+        option.displayName,
+        _uiState.value.accelerator,
+        _uiState.value.gpuPrecision,
+        _uiState.value.gpuBackend,
+        _uiState.value.gpuPriority,
+        _uiState.value.gpuBufferStorageType,
+        _uiState.value.gpuPreferTextureWeights,
+        _uiState.value.gpuConstantTensorSharing,
+        _uiState.value.gpuInfiniteFloatCapping,
+        _uiState.value.inputFileUri,
+        _uiState.value.outputFileUri,
+        onLog = ::appendLog,
+      ) { result ->
+        completedRuns++
+        tensorDescriptions = result.tensorDescriptions
+        _uiState.update {
+          it.copy(
+            inferenceTime = result.inferenceTimeMillis,
+            tensorDescriptions = result.tensorDescriptions,
+          )
+        }
+        if (completedRuns > config.warmupRuns) inferenceTimes += result.inferenceTimeMillis
+        if (completedRuns >= config.warmupRuns + config.runs) throw ShellBenchmarkComplete()
+      }
+    } catch (complete: ShellBenchmarkComplete) {
+      // Expected termination after the requested finite run count.
+    } catch (error: CancellationException) {
+      throw error
+    } catch (error: Exception) {
+      appendLog("Error: ${error.message ?: error.javaClass.simpleName}")
+      _uiState.update { it.copy(errorMessage = error.message ?: error.javaClass.simpleName) }
+      throw error
+    } finally {
+      _uiState.update { it.copy(isRunning = false) }
+      appendLog("Stopped")
+    }
+    check(inferenceTimes.size == config.runs) {
+      "Benchmark stopped after ${inferenceTimes.size} measured runs; expected ${config.runs}"
+    }
+    return ShellBenchmarkResult(inferenceTimes, tensorDescriptions)
+  }
+
   fun errorMessageShown() {
     _uiState.update { it.copy(errorMessage = null) }
   }
@@ -248,4 +318,6 @@ class MainViewModel(
     _uiState.update { it.copy(logLines = (it.logLines + line).takeLast(100)) }
     viewModelScope.launch(Dispatchers.IO) { logFileWriter.appendLine(line) }
   }
+
+  private class ShellBenchmarkComplete : CancellationException("Shell benchmark complete")
 }
