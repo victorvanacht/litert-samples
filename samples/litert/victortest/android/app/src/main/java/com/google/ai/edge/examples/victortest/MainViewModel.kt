@@ -89,6 +89,16 @@ class MainViewModel(
     appendLog("Selected model: ${_uiState.value.models.firstOrNull { it.id == id }?.displayName}")
   }
 
+  fun setInputFile(uri: Uri?, displayName: String?) {
+    _uiState.update { it.copy(inputFileUri = uri, inputFileName = displayName) }
+    appendLog(if (uri != null) "Selected input file: $displayName" else "Cleared input file, using random inputs")
+  }
+
+  fun setOutputFile(uri: Uri?, displayName: String?) {
+    _uiState.update { it.copy(outputFileUri = uri, outputFileName = displayName) }
+    appendLog(if (uri != null) "Selected output file: $displayName" else "Cleared output file, discarding outputs")
+  }
+
   fun selectAccelerator(accelerator: AcceleratorChoice) {
     _uiState.update { it.copy(accelerator = accelerator, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected accelerator: ${accelerator.displayName}")
@@ -162,6 +172,8 @@ class MainViewModel(
               _uiState.value.gpuPreferTextureWeights,
               _uiState.value.gpuConstantTensorSharing,
               _uiState.value.gpuInfiniteFloatCapping,
+              _uiState.value.inputFileUri,
+              _uiState.value.outputFileUri,
               onLog = ::appendLog,
             ) { result ->
               _uiState.update {
@@ -183,6 +195,8 @@ class MainViewModel(
               _uiState.value.gpuPreferTextureWeights,
               _uiState.value.gpuConstantTensorSharing,
               _uiState.value.gpuInfiniteFloatCapping,
+              _uiState.value.inputFileUri,
+              _uiState.value.outputFileUri,
               concurrency = ASYNC_CONCURRENCY,
               onLog = ::appendLog,
             ) { result ->

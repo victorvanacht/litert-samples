@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <random>
 #include <string>
@@ -41,6 +42,8 @@ struct Session {
   std::vector<ElementType> input_types;
   std::vector<size_t> input_elements;
   BufferSet synchronous_buffers;
+  std::string input_file_path;
+  std::string output_file_path;
 };
 
 void Throw(JNIEnv* env, const std::string& message) {
@@ -105,9 +108,63 @@ Expected<BufferSet> CreateBuffers(const CompiledModel& model) {
   return BufferSet{std::move(inputs), std::move(outputs)};
 }
 
+// Fills each input buffer sequentially from the bytes of `file_path`,
+// zero-padding any bytes past the end of the file.
+void FillInputFromFile(std::vector<TensorBuffer>& inputs,
+                        const std::string& file_path) {
+  std::ifstream file(file_path, std::ios::binary);
+  size_t offset = 0;
+  std::vector<char> data;
+  if (file) {
+    file.seekg(0, std::ios::end);
+    const auto size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    data.resize(static_cast<size_t>(size));
+    file.read(data.data(), size);
+  }
+  for (TensorBuffer& input : inputs) {
+    auto packed_size = input.PackedSize();
+    LITERT_ABORT_IF_ERROR(packed_size);
+    auto memory = input.Lock(TensorBuffer::LockMode::kWrite);
+    LITERT_ABORT_IF_ERROR(memory);
+    const size_t available =
+        offset < data.size() ? data.size() - offset : 0;
+    const size_t to_copy = std::min(available, *packed_size);
+    if (to_copy > 0) {
+      std::memcpy(*memory, data.data() + offset, to_copy);
+    }
+    if (to_copy < *packed_size) {
+      std::memset(static_cast<uint8_t*>(*memory) + to_copy, 0,
+                  *packed_size - to_copy);
+    }
+    offset += *packed_size;
+    LITERT_ABORT_IF_ERROR(input.Unlock());
+  }
+}
+
 void InitializeInputs(Session& session, BufferSet& buffers) {
+  if (!session.input_file_path.empty()) {
+    FillInputFromFile(buffers.inputs, session.input_file_path);
+    return;
+  }
   for (size_t i = 0; i < buffers.inputs.size(); ++i) {
     FillInput(buffers.inputs[i], session.input_types[i], session.input_elements[i]);
+  }
+}
+
+// Writes the concatenated raw bytes of every output buffer to `file_path`,
+// overwriting any previous contents.
+void WriteOutputsToFile(std::vector<TensorBuffer>& outputs,
+                        const std::string& file_path) {
+  std::ofstream file(file_path, std::ios::binary | std::ios::trunc);
+  if (!file) return;
+  for (TensorBuffer& output : outputs) {
+    auto memory = output.Lock(TensorBuffer::LockMode::kRead);
+    LITERT_ABORT_IF_ERROR(memory);
+    auto packed_size = output.PackedSize();
+    LITERT_ABORT_IF_ERROR(packed_size);
+    file.write(static_cast<const char*>(*memory), *packed_size);
+    LITERT_ABORT_IF_ERROR(output.Unlock());
   }
 }
 
@@ -124,7 +181,8 @@ void RunBufferSet(Session& session, BufferSet& buffers) {
 Expected<std::unique_ptr<Session>> CreateSession(
     const std::string& model_path, int accelerator, int precision, int backend,
     int priority, int storage_type, bool prefer_texture_weights,
-    bool constant_tensor_sharing, bool infinite_float_capping) {
+    bool constant_tensor_sharing, bool infinite_float_capping,
+    const std::string& input_file_path, const std::string& output_file_path) {
   LITERT_ASSIGN_OR_RETURN(auto environment, Environment::Create({}));
 
   Options options;
@@ -153,7 +211,8 @@ Expected<std::unique_ptr<Session>> CreateSession(
   LITERT_ASSIGN_OR_RETURN(auto model,
                           CompiledModel::Create(environment, model_path, options));
   auto session = std::make_unique<Session>(
-      Session{std::move(environment), std::move(model), {}, {}, {}, {}});
+      Session{std::move(environment), std::move(model), {}, {}, {}, {},
+              input_file_path, output_file_path});
 
   LITERT_ASSIGN_OR_RETURN(auto input_names, session->model.GetSignatureInputNames());
   LITERT_ASSIGN_OR_RETURN(auto output_names, session->model.GetSignatureOutputNames());
@@ -178,14 +237,26 @@ Session* GetSession(jlong handle) {
   return reinterpret_cast<Session*>(handle);
 }
 
+// Returns the UTF-8 contents of `value`, or an empty string if it is null.
+std::string JavaStringOrEmpty(JNIEnv* env, jstring value) {
+  if (value == nullptr) return "";
+  const char* chars = env->GetStringUTFChars(value, nullptr);
+  std::string result(chars);
+  env->ReleaseStringUTFChars(value, chars);
+  return result;
+}
+
 extern "C" JNIEXPORT jlong JNICALL NativePrepare(
     JNIEnv* env, jobject, jstring model_path, jint accelerator, jint precision,
     jint backend, jint priority, jint storage_type, jboolean prefer_texture_weights,
-    jboolean constant_tensor_sharing, jboolean infinite_float_capping) {
+    jboolean constant_tensor_sharing, jboolean infinite_float_capping,
+    jstring input_file_path, jstring output_file_path) {
   const char* path = env->GetStringUTFChars(model_path, nullptr);
   auto session = CreateSession(path, accelerator, precision, backend, priority,
                                storage_type, prefer_texture_weights,
-                               constant_tensor_sharing, infinite_float_capping);
+                               constant_tensor_sharing, infinite_float_capping,
+                               JavaStringOrEmpty(env, input_file_path),
+                               JavaStringOrEmpty(env, output_file_path));
   env->ReleaseStringUTFChars(model_path, path);
   if (!session) {
     Throw(env, session.Error().Message());
@@ -212,9 +283,13 @@ extern "C" JNIEXPORT jlong JNICALL NativeRun(JNIEnv*, jobject, jlong handle) {
   Session* session = GetSession(handle);
   const auto start = std::chrono::steady_clock::now();
   RunBufferSet(*session, session->synchronous_buffers);
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::steady_clock::now() - start)
-      .count();
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start);
+  if (!session->output_file_path.empty()) {
+    WriteOutputsToFile(session->synchronous_buffers.outputs,
+                       session->output_file_path);
+  }
+  return elapsed.count();
 }
 
 extern "C" JNIEXPORT jdouble JNICALL NativeRunConcurrent(
@@ -244,6 +319,9 @@ extern "C" JNIEXPORT jdouble JNICALL NativeRunConcurrent(
   const double seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
           .count();
+  if (!session->output_file_path.empty() && !slots.empty()) {
+    WriteOutputsToFile(slots.back().outputs, session->output_file_path);
+  }
   return completed / seconds;
 }
 
@@ -262,7 +340,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
       "com/google/ai/edge/examples/victortestcpp/NativeModelRunner");
   if (runner == nullptr) return JNI_ERR;
   const JNINativeMethod methods[] = {
-      {"nativePrepare", "(Ljava/lang/String;IIIIIZZZ)J", reinterpret_cast<void*>(NativePrepare)},
+      {"nativePrepare", "(Ljava/lang/String;IIIIIZZZLjava/lang/String;Ljava/lang/String;)J", reinterpret_cast<void*>(NativePrepare)},
       {"nativeTensorDescriptions", "(J)[Ljava/lang/String;", reinterpret_cast<void*>(NativeTensorDescriptions)},
       {"nativeRun", "(J)J", reinterpret_cast<void*>(NativeRun)},
       {"nativeRunConcurrent", "(JI)D", reinterpret_cast<void*>(NativeRunConcurrent)},

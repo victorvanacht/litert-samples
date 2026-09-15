@@ -5,7 +5,10 @@ import android.net.Uri
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.TensorBuffer
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -30,6 +33,8 @@ class ModelRunner(private val context: Context) {
     gpuPreferTextureWeights: Boolean,
     gpuConstantTensorSharing: Boolean,
     gpuInfiniteFloatCapping: Boolean,
+    inputFileUri: Uri?,
+    outputFileUri: Uri?,
     onLog: suspend (String) -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
@@ -38,18 +43,20 @@ class ModelRunner(private val context: Context) {
       val inputBuffers = prepared.model.createInputBuffers()
       val outputBuffers = prepared.model.createOutputBuffers()
       onLog("Allocated ${inputBuffers.size} input buffer(s), ${outputBuffers.size} output buffer(s)")
-      inputBuffers.forEachIndexed { index, buffer -> writeRandomInput(buffer, prepared.inputShapes[index]) }
+      writeInputs(inputBuffers, prepared.inputShapes, inputFileUri)
 
       var iteration = 0
       onLog("Starting synchronous inference loop")
       while (currentCoroutineContext().isActive) {
         iteration++
+        val captureOutput = outputFileUri != null
         val startNanos = System.nanoTime()
         prepared.model.run(inputBuffers, outputBuffers)
         // Read back every output, like the working image_segmentation sample does. Skipping this
         // let the GPU backend enqueue work unbounded with no synchronization.
-        outputBuffers.forEachIndexed { index, buffer -> readAndDiscardOutput(buffer, prepared.outputShapes[index]) }
+        val outputBytes = outputBuffers.mapIndexed { index, buffer -> readOutput(buffer, prepared.outputShapes[index], captureOutput) }
         val elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000
+        if (outputFileUri != null) writeOutputsToUri(outputBytes.filterNotNull(), outputFileUri)
         onLog("Inference #$iteration: $elapsedMillis ms")
         onResult(ModelRunResult(displayName, elapsedMillis, prepared.tensorDescriptions))
       }
@@ -76,22 +83,26 @@ class ModelRunner(private val context: Context) {
     gpuPreferTextureWeights: Boolean,
     gpuConstantTensorSharing: Boolean,
     gpuInfiniteFloatCapping: Boolean,
+    inputFileUri: Uri?,
+    outputFileUri: Uri?,
     concurrency: Int,
     onLog: suspend (String) -> Unit,
     onThroughput: suspend (ThroughputResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
+      val captureOutput = outputFileUri != null
       val slots =
         List(concurrency) {
           val inputBuffers = prepared.model.createInputBuffers()
           val outputBuffers = prepared.model.createOutputBuffers()
-          inputBuffers.forEachIndexed { index, buffer -> writeRandomInput(buffer, prepared.inputShapes[index]) }
+          writeInputs(inputBuffers, prepared.inputShapes, inputFileUri)
           inputBuffers to outputBuffers
         }
       onLog("Allocated $concurrency concurrent buffer set(s)")
 
       val completedCount = AtomicLong(0)
+      val lastOutputBytes = AtomicReference<List<ByteArray>?>(null)
       val startNanos = System.nanoTime()
       onLog("Starting asynchronous inference loop with $concurrency in-flight execution(s)")
 
@@ -103,16 +114,19 @@ class ModelRunner(private val context: Context) {
             val rate = completedCount.get() / elapsedSeconds
             onLog("Throughput: %.1f inferences/s".format(rate))
             onThroughput(ThroughputResult(rate, prepared.tensorDescriptions))
+            // Write outside the per-inference loop so disk I/O never counts against throughput.
+            if (outputFileUri != null) lastOutputBytes.get()?.let { writeOutputsToUri(it, outputFileUri) }
           }
         }
         slots.forEach { (inputBuffers, outputBuffers) ->
           launch {
             while (isActive) {
               prepared.model.run(inputBuffers, outputBuffers)
-              outputBuffers.forEachIndexed { index, buffer ->
-                readAndDiscardOutput(buffer, prepared.outputShapes[index])
+              val outputBytes = outputBuffers.mapIndexed { index, buffer ->
+                readOutput(buffer, prepared.outputShapes[index], captureOutput)
               }
               completedCount.incrementAndGet()
+              if (captureOutput) lastOutputBytes.set(outputBytes.filterNotNull())
             }
           }
         }
@@ -183,14 +197,19 @@ class ModelRunner(private val context: Context) {
     }
   }
 
-  /** Forces GPU readback/sync every iteration, mirroring the working image_segmentation sample. */
-  private fun readAndDiscardOutput(buffer: TensorBuffer, shape: TensorShape) {
-    when (shape.dataType) {
-      DataType.FLOAT32 -> buffer.readFloat()
-      DataType.INT32 -> buffer.readInt()
-      DataType.UINT8, DataType.INT8 -> buffer.readInt8()
-      DataType.BOOL -> buffer.readBoolean()
-      DataType.INT64 -> buffer.readLong()
+  /**
+   * Forces GPU readback/sync every iteration, mirroring the working image_segmentation sample.
+   * Skipping the read let the GPU backend enqueue work unbounded with no synchronization. When
+   * [captureBytes] is true (an output file was selected), also returns the raw bytes so they can
+   * be written to disk outside the timed/throughput region.
+   */
+  private fun readOutput(buffer: TensorBuffer, shape: TensorShape, captureBytes: Boolean): ByteArray? {
+    return when (shape.dataType) {
+      DataType.FLOAT32 -> buffer.readFloat().let { if (captureBytes) floatsToBytes(it) else null }
+      DataType.INT32 -> buffer.readInt().let { if (captureBytes) intsToBytes(it) else null }
+      DataType.UINT8, DataType.INT8 -> buffer.readInt8().let { if (captureBytes) it else null }
+      DataType.BOOL -> buffer.readBoolean().let { if (captureBytes) booleansToBytes(it) else null }
+      DataType.INT64 -> buffer.readLong().let { if (captureBytes) longsToBytes(it) else null }
       else -> error("Unsupported output tensor type: ${shape.dataType}")
     }
   }
@@ -204,6 +223,70 @@ class ModelRunner(private val context: Context) {
       DataType.INT64 -> buffer.writeLong(LongArray(shape.elementCount) { Random.nextLong() })
       else -> error("Unsupported input tensor type: ${shape.dataType}")
     }
+  }
+
+  /** Fills each buffer from [inputFileUri]'s raw bytes (zero-padded if short), or with random data if null. */
+  private fun writeInputs(buffers: List<TensorBuffer>, shapes: List<TensorShape>, inputFileUri: Uri?) {
+    if (inputFileUri == null) {
+      buffers.forEachIndexed { index, buffer -> writeRandomInput(buffer, shapes[index]) }
+      return
+    }
+    val fileBytes = readAllBytes(inputFileUri)
+    var offset = 0
+    buffers.forEachIndexed { index, buffer ->
+      offset = writeInputFromFile(buffer, shapes[index], fileBytes, offset)
+    }
+  }
+
+  private fun writeInputFromFile(buffer: TensorBuffer, shape: TensorShape, fileBytes: ByteArray, offset: Int): Int {
+    val elementSize = elementByteSize(shape.dataType)
+    val byteSize = shape.elementCount * elementSize
+    val chunk = ByteArray(byteSize)
+    val available = (fileBytes.size - offset).coerceAtLeast(0)
+    val toCopy = minOf(available, byteSize)
+    if (toCopy > 0) System.arraycopy(fileBytes, offset, chunk, 0, toCopy)
+    val bytes = ByteBuffer.wrap(chunk).order(ByteOrder.nativeOrder())
+    when (shape.dataType) {
+      DataType.FLOAT32 -> buffer.writeFloat(FloatArray(shape.elementCount).also { bytes.asFloatBuffer().get(it) })
+      DataType.INT32 -> buffer.writeInt(IntArray(shape.elementCount).also { bytes.asIntBuffer().get(it) })
+      DataType.UINT8, DataType.INT8 -> buffer.writeInt8(chunk)
+      DataType.BOOL -> buffer.writeBoolean(BooleanArray(shape.elementCount) { chunk[it] != 0.toByte() })
+      DataType.INT64 -> buffer.writeLong(LongArray(shape.elementCount).also { bytes.asLongBuffer().get(it) })
+      else -> error("Unsupported input tensor type: ${shape.dataType}")
+    }
+    return offset + byteSize
+  }
+
+  private fun elementByteSize(dataType: DataType): Int = when (dataType) {
+    DataType.FLOAT32, DataType.INT32 -> 4
+    DataType.UINT8, DataType.INT8, DataType.BOOL -> 1
+    DataType.INT64 -> 8
+    else -> error("Unsupported tensor type: $dataType")
+  }
+
+  private fun floatsToBytes(values: FloatArray) =
+    ByteBuffer.allocate(values.size * 4).order(ByteOrder.nativeOrder()).apply { asFloatBuffer().put(values) }.array()
+
+  private fun intsToBytes(values: IntArray) =
+    ByteBuffer.allocate(values.size * 4).order(ByteOrder.nativeOrder()).apply { asIntBuffer().put(values) }.array()
+
+  private fun longsToBytes(values: LongArray) =
+    ByteBuffer.allocate(values.size * 8).order(ByteOrder.nativeOrder()).apply { asLongBuffer().put(values) }.array()
+
+  private fun booleansToBytes(values: BooleanArray) = ByteArray(values.size) { if (values[it]) 1 else 0 }
+
+  /** Overwrites [uri] with the concatenated raw bytes of every output tensor. */
+  private fun writeOutputsToUri(outputs: List<ByteArray>, uri: Uri) {
+    context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+      outputs.forEach { output.write(it) }
+    }
+  }
+
+  private fun readAllBytes(uri: Uri): ByteArray {
+    val assetName = uri.schemeSpecificPart.removePrefix("//")
+    val input = if (uri.scheme == "asset") context.assets.open(assetName)
+    else context.contentResolver.openInputStream(uri)
+    return requireNotNull(input) { "Unable to open input file" }.use { it.readBytes() }
   }
 
   private fun copyToCache(uri: Uri, displayName: String): File {

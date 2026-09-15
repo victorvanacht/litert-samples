@@ -64,6 +64,29 @@ class MainActivity : ComponentActivity() {
           }
         }
       }
+      val inputFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+          val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: uri.lastPathSegment
+            ?: "input.bin"
+          contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          viewModel.setInputFile(uri, name)
+        }
+      }
+      val outputFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) {
+          val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: uri.lastPathSegment
+            ?: "output.bin"
+          contentResolver.takePersistableUriPermission(
+            uri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+          )
+          viewModel.setOutputFile(uri, name)
+        }
+      }
       LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
           Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
@@ -75,6 +98,10 @@ class MainActivity : ComponentActivity() {
           uiState = uiState,
           onChooseModel = { modelPicker.launch(arrayOf("application/octet-stream", "application/x-tflite", "*/*")) },
           onSelectModel = viewModel::selectModel,
+          onChooseInputFile = { inputFilePicker.launch(arrayOf("*/*")) },
+          onClearInputFile = { viewModel.setInputFile(null, null) },
+          onChooseOutputFile = { outputFilePicker.launch("output.bin") },
+          onClearOutputFile = { viewModel.setOutputFile(null, null) },
           onSelectAccelerator = viewModel::selectAccelerator,
           onSelectGpuPrecision = viewModel::selectGpuPrecision,
           onSelectGpuBackend = viewModel::selectGpuBackend,
@@ -96,6 +123,10 @@ private fun ModelRunnerScreen(
   uiState: UiState,
   onChooseModel: () -> Unit,
   onSelectModel: (String) -> Unit,
+  onChooseInputFile: () -> Unit,
+  onClearInputFile: () -> Unit,
+  onChooseOutputFile: () -> Unit,
+  onClearOutputFile: () -> Unit,
   onSelectAccelerator: (AcceleratorChoice) -> Unit,
   onSelectGpuPrecision: (CompiledModel.GpuOptions.Precision) -> Unit,
   onSelectGpuBackend: (CompiledModel.GpuOptions.Backend) -> Unit,
@@ -116,6 +147,22 @@ private fun ModelRunnerScreen(
       Text("LiteRT CompiledModel runner", style = MaterialTheme.typography.h6)
       Text("Select a .tflite file. Random input tensors are generated from its tensor metadata; outputs are discarded.")
       ModelSelector(uiState, onChooseModel, onSelectModel)
+      FileSelector(
+        label = "Input tensor file",
+        fileName = uiState.inputFileName,
+        placeholder = "Random (default)",
+        chooseLabel = "Choose input file",
+        onChoose = onChooseInputFile,
+        onClear = onClearInputFile,
+      )
+      FileSelector(
+        label = "Output tensor file",
+        fileName = uiState.outputFileName,
+        placeholder = "Discarded (default)",
+        chooseLabel = "Choose output file",
+        onChoose = onChooseOutputFile,
+        onClear = onClearOutputFile,
+      )
       RunModeSelector(uiState.runMode, onSelectRunMode)
       AcceleratorSelector(uiState.accelerator, onSelectAccelerator)
       if (uiState.accelerator != AcceleratorChoice.CPU) {
@@ -295,6 +342,27 @@ private fun AcceleratorSelector(
         DropdownMenuItem(onClick = { onSelect(accelerator); expanded = false }) {
           Text(accelerator.displayName)
         }
+      }
+    }
+  }
+}
+
+@Composable
+private fun FileSelector(
+  label: String,
+  fileName: String?,
+  placeholder: String,
+  chooseLabel: String,
+  onChoose: () -> Unit,
+  onClear: () -> Unit,
+) {
+  Column(modifier = Modifier.fillMaxWidth()) {
+    Text(label)
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text(fileName ?: placeholder, modifier = Modifier.weight(1f).align(Alignment.CenterVertically))
+      OutlinedButton(onClick = onChoose) { Text(chooseLabel) }
+      if (fileName != null) {
+        OutlinedButton(onClick = onClear) { Text("Clear") }
       }
     }
   }

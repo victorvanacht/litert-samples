@@ -26,10 +26,14 @@ class NativeModelRunner(private val context: Context) {
     gpuPreferTextureWeights: Boolean,
     gpuConstantTensorSharing: Boolean,
     gpuInfiniteFloatCapping: Boolean,
+    inputFileUri: Uri?,
+    outputFileUri: Uri?,
     onLog: suspend (String) -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val modelFile = copyToCache(uri, displayName)
+    val inputFile = inputFileUri?.let { copyToCache(it, "input_$displayName") }
+    val outputFile = outputFileUri?.let { File.createTempFile("victortestcpp_out_", "_$displayName", context.cacheDir) }
     val handle = nativePrepare(
       modelFile.absolutePath,
       if (accelerator == AcceleratorChoice.GPU) 1 else 0,
@@ -40,6 +44,8 @@ class NativeModelRunner(private val context: Context) {
       gpuPreferTextureWeights,
       gpuConstantTensorSharing,
       gpuInfiniteFloatCapping,
+      inputFile?.absolutePath,
+      outputFile?.absolutePath,
     )
     try {
       val tensorDescriptions = nativeTensorDescriptions(handle).toList()
@@ -49,12 +55,15 @@ class NativeModelRunner(private val context: Context) {
       while (currentCoroutineContext().isActive) {
         iteration++
         val elapsedMillis = nativeRun(handle)
+        if (outputFileUri != null && outputFile != null) copyOutputToUri(outputFile, outputFileUri)
         onLog("Inference #$iteration: $elapsedMillis ms")
         onResult(ModelRunResult(displayName, elapsedMillis, tensorDescriptions))
       }
     } finally {
       nativeClose(handle)
       modelFile.delete()
+      inputFile?.delete()
+      outputFile?.delete()
     }
   }
 
@@ -69,11 +78,15 @@ class NativeModelRunner(private val context: Context) {
     gpuPreferTextureWeights: Boolean,
     gpuConstantTensorSharing: Boolean,
     gpuInfiniteFloatCapping: Boolean,
+    inputFileUri: Uri?,
+    outputFileUri: Uri?,
     concurrency: Int,
     onLog: suspend (String) -> Unit,
     onThroughput: suspend (ThroughputResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val modelFile = copyToCache(uri, displayName)
+    val inputFile = inputFileUri?.let { copyToCache(it, "input_$displayName") }
+    val outputFile = outputFileUri?.let { File.createTempFile("victortestcpp_out_", "_$displayName", context.cacheDir) }
     val handle = nativePrepare(
       modelFile.absolutePath,
       if (accelerator == AcceleratorChoice.GPU) 1 else 0,
@@ -84,6 +97,8 @@ class NativeModelRunner(private val context: Context) {
       gpuPreferTextureWeights,
       gpuConstantTensorSharing,
       gpuInfiniteFloatCapping,
+      inputFile?.absolutePath,
+      outputFile?.absolutePath,
     )
     try {
       val tensorDescriptions = nativeTensorDescriptions(handle).toList()
@@ -91,12 +106,21 @@ class NativeModelRunner(private val context: Context) {
       for (description in tensorDescriptions) onLog(description)
       while (currentCoroutineContext().isActive) {
         val rate = nativeRunConcurrent(handle, concurrency)
+        if (outputFileUri != null && outputFile != null) copyOutputToUri(outputFile, outputFileUri)
         onLog("Throughput: %.1f inferences/s".format(rate))
         onThroughput(ThroughputResult(rate, tensorDescriptions))
       }
     } finally {
       nativeClose(handle)
       modelFile.delete()
+      inputFile?.delete()
+      outputFile?.delete()
+    }
+  }
+
+  private fun copyOutputToUri(outputFile: File, destination: Uri) {
+    context.contentResolver.openOutputStream(destination, "wt")?.use { output ->
+      outputFile.inputStream().use { input -> input.copyTo(output) }
     }
   }
 
@@ -110,6 +134,8 @@ class NativeModelRunner(private val context: Context) {
     preferTextureWeights: Boolean,
     constantTensorSharing: Boolean,
     infiniteFloatCapping: Boolean,
+    inputFilePath: String?,
+    outputFilePath: String?,
   ): Long
 
   private external fun nativeTensorDescriptions(handle: Long): Array<String>
