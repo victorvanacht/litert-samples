@@ -26,10 +26,14 @@ class ModelRunner(private val context: Context) {
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
+    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
+    gpuPreferTextureWeights: Boolean,
+    gpuConstantTensorSharing: Boolean,
+    gpuInfiniteFloatCapping: Boolean,
     onLog: suspend (String) -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
-    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, onLog)
+    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
       val inputBuffers = prepared.model.createInputBuffers()
       val outputBuffers = prepared.model.createOutputBuffers()
@@ -68,11 +72,15 @@ class ModelRunner(private val context: Context) {
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
+    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
+    gpuPreferTextureWeights: Boolean,
+    gpuConstantTensorSharing: Boolean,
+    gpuInfiniteFloatCapping: Boolean,
     concurrency: Int,
     onLog: suspend (String) -> Unit,
     onThroughput: suspend (ThroughputResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
-    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, onLog)
+    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
       val slots =
         List(concurrency) {
@@ -127,6 +135,10 @@ class ModelRunner(private val context: Context) {
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
+    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
+    gpuPreferTextureWeights: Boolean,
+    gpuConstantTensorSharing: Boolean,
+    gpuInfiniteFloatCapping: Boolean,
     onLog: suspend (String) -> Unit,
   ): PreparedModel {
     onLog("Loading $displayName")
@@ -141,7 +153,7 @@ class ModelRunner(private val context: Context) {
     onLog("Found ${inputShapes.size} input tensor(s), ${outputShapes.size} output tensor(s)")
 
     onLog("Compiling model for ${accelerator.displayName}")
-    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions(gpuPrecision, gpuBackend, gpuPriority))
+    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions(gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping))
     onLog("Compiled model")
 
     val tensorDescriptions =
@@ -219,10 +231,22 @@ enum class AcceleratorChoice(
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
+    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
+    gpuPreferTextureWeights: Boolean,
+    gpuConstantTensorSharing: Boolean,
+    gpuInfiniteFloatCapping: Boolean,
   ): CompiledModel.Options {
     val options = CompiledModel.Options(litertAccelerator)
     if (litertAccelerator == com.google.ai.edge.litert.Accelerator.GPU) {
-      options.gpuOptions = CompiledModel.GpuOptions(precision = gpuPrecision, backend = gpuBackend, priority = gpuPriority)
+      options.gpuOptions = CompiledModel.GpuOptions(
+        precision = gpuPrecision,
+        backend = gpuBackend,
+        priority = gpuPriority,
+        bufferStorageType = gpuBufferStorageType,
+        preferTextureWeights = gpuPreferTextureWeights,
+        constantTensorSharing = gpuConstantTensorSharing,
+        infiniteFloatCapping = gpuInfiniteFloatCapping,
+      )
     }
     return options
   }

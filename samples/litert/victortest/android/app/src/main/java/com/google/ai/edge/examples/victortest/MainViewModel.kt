@@ -109,6 +109,26 @@ class MainViewModel(
     appendLog("Selected GPU priority: ${priority.name}")
   }
 
+  fun selectGpuBufferStorageType(storageType: CompiledModel.GpuOptions.BufferStorageType) {
+    _uiState.update { it.copy(gpuBufferStorageType = storageType, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
+    appendLog("Selected GPU buffer storage: ${storageType.name}")
+  }
+
+  fun setGpuPreferTextureWeights(enabled: Boolean) {
+    _uiState.update { it.copy(gpuPreferTextureWeights = enabled, inferenceTime = null, inferencesPerSecond = null) }
+    appendLog("Prefer texture weights: $enabled")
+  }
+
+  fun setGpuConstantTensorSharing(enabled: Boolean) {
+    _uiState.update { it.copy(gpuConstantTensorSharing = enabled, inferenceTime = null, inferencesPerSecond = null) }
+    appendLog("Constant tensor sharing: $enabled")
+  }
+
+  fun setGpuInfiniteFloatCapping(enabled: Boolean) {
+    _uiState.update { it.copy(gpuInfiniteFloatCapping = enabled, inferenceTime = null, inferencesPerSecond = null) }
+    appendLog("Infinite float capping: $enabled")
+  }
+
   fun selectRunMode(mode: RunMode) {
     _uiState.update { it.copy(runMode = mode, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected run mode: ${mode.name}")
@@ -138,6 +158,10 @@ class MainViewModel(
               _uiState.value.gpuPrecision,
               _uiState.value.gpuBackend,
               _uiState.value.gpuPriority,
+              _uiState.value.gpuBufferStorageType,
+              _uiState.value.gpuPreferTextureWeights,
+              _uiState.value.gpuConstantTensorSharing,
+              _uiState.value.gpuInfiniteFloatCapping,
               onLog = ::appendLog,
             ) { result ->
               _uiState.update {
@@ -155,6 +179,10 @@ class MainViewModel(
               _uiState.value.gpuPrecision,
               _uiState.value.gpuBackend,
               _uiState.value.gpuPriority,
+              _uiState.value.gpuBufferStorageType,
+              _uiState.value.gpuPreferTextureWeights,
+              _uiState.value.gpuConstantTensorSharing,
+              _uiState.value.gpuInfiniteFloatCapping,
               concurrency = ASYNC_CONCURRENCY,
               onLog = ::appendLog,
             ) { result ->

@@ -25,6 +25,7 @@ import androidx.compose.material.DropdownMenu
 import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedButton
+import androidx.compose.material.Switch
 import androidx.compose.material.Text
 import androidx.compose.material.TopAppBar
 import androidx.compose.runtime.Composable
@@ -78,6 +79,10 @@ class MainActivity : ComponentActivity() {
           onSelectGpuPrecision = viewModel::selectGpuPrecision,
           onSelectGpuBackend = viewModel::selectGpuBackend,
           onSelectGpuPriority = viewModel::selectGpuPriority,
+          onSelectGpuBufferStorageType = viewModel::selectGpuBufferStorageType,
+          onSetGpuPreferTextureWeights = viewModel::setGpuPreferTextureWeights,
+          onSetGpuConstantTensorSharing = viewModel::setGpuConstantTensorSharing,
+          onSetGpuInfiniteFloatCapping = viewModel::setGpuInfiniteFloatCapping,
           onSelectRunMode = viewModel::selectRunMode,
           onRunModel = viewModel::toggleModelRun,
         )
@@ -95,6 +100,10 @@ private fun ModelRunnerScreen(
   onSelectGpuPrecision: (CompiledModel.GpuOptions.Precision) -> Unit,
   onSelectGpuBackend: (CompiledModel.GpuOptions.Backend) -> Unit,
   onSelectGpuPriority: (CompiledModel.GpuOptions.Priority) -> Unit,
+  onSelectGpuBufferStorageType: (CompiledModel.GpuOptions.BufferStorageType) -> Unit,
+  onSetGpuPreferTextureWeights: (Boolean) -> Unit,
+  onSetGpuConstantTensorSharing: (Boolean) -> Unit,
+  onSetGpuInfiniteFloatCapping: (Boolean) -> Unit,
   onSelectRunMode: (RunMode) -> Unit,
   onRunModel: () -> Unit,
 ) {
@@ -113,6 +122,10 @@ private fun ModelRunnerScreen(
         GpuPrecisionSelector(uiState.gpuPrecision, onSelectGpuPrecision)
         GpuBackendSelector(uiState.gpuBackend, onSelectGpuBackend)
         GpuPrioritySelector(uiState.gpuPriority, onSelectGpuPriority)
+        GpuBufferStorageSelector(uiState.gpuBufferStorageType, onSelectGpuBufferStorageType)
+        GpuOptionSwitch("Prefer texture weights", uiState.gpuPreferTextureWeights, onSetGpuPreferTextureWeights)
+        GpuOptionSwitch("Constant tensor sharing", uiState.gpuConstantTensorSharing, onSetGpuConstantTensorSharing)
+        GpuOptionSwitch("Infinite float capping", uiState.gpuInfiniteFloatCapping, onSetGpuInfiniteFloatCapping)
       }
       Button(
         onClick = onRunModel,
@@ -234,6 +247,37 @@ private fun GpuPrioritySelector(
         }
       }
     }
+  }
+}
+
+@Composable
+private fun GpuBufferStorageSelector(
+  selected: CompiledModel.GpuOptions.BufferStorageType,
+  onSelect: (CompiledModel.GpuOptions.BufferStorageType) -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text("GPU buffer storage")
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.name) }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      CompiledModel.GpuOptions.BufferStorageType.entries.forEach { storageType ->
+        DropdownMenuItem(onClick = { onSelect(storageType); expanded = false }) {
+          Text(storageType.name)
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun GpuOptionSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(label)
+    Switch(checked = checked, onCheckedChange = onCheckedChange)
   }
 }
 
