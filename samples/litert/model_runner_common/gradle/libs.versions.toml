@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Shared by the victortest and victortestcpp Gradle projects (see their settings.gradle.kts).
 
 [versions]
 agp = "8.9.1"
@@ -64,6 +65,7 @@ android-play-ai-delivery = { group = "com.google.android.play", name = "ai-deliv
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
 jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 undercouch-download = { id = "de.undercouch.download", version.ref = "undercouchDownload" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

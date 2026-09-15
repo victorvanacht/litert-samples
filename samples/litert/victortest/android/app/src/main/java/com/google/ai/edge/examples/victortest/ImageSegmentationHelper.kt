@@ -25,7 +25,7 @@ import android.util.Log
 import androidx.core.graphics.scale
 import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
-import com.google.ai.edge.examples.victortest.TensorUtils.logTensorStats
+import com.google.ai.edge.examples.modelrunner.common.TensorUtils.logTensorStats
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.util.Random

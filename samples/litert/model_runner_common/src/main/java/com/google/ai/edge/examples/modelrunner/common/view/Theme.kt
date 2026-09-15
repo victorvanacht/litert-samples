@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.ai.edge.examples.victortest.view
+package com.google.ai.edge.examples.modelrunner.common.view
 
 import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.Composable

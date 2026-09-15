@@ -84,9 +84,10 @@ tasks.configureEach {
 
 // Import DownloadModels task
 project.extensions.extraProperties["ASSET_DIR"] = "$projectDir/src/main/assets"
-apply(from = "download_model.gradle")
+apply(from = "../../../model_runner_common/download_model.gradle")
 
 dependencies {
+  implementation(project(":model_runner_common"))
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.runtime.compose)

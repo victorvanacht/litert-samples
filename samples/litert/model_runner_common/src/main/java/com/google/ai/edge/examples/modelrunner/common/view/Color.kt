@@ -14,15 +14,10 @@
  * limitations under the License.
  */
 
-package com.google.ai.edge.examples.victortestcpp.view
+package com.google.ai.edge.examples.modelrunner.common.view
 
-import androidx.compose.material.MaterialTheme
-import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
-@Composable
-fun ApplicationTheme(content: @Composable () -> Unit) {
-  MaterialTheme(
-    colors = MaterialTheme.colors.copy(primary = darkBlue, secondary = teal, onSurface = teal),
-    content = content,
-  )
-}
+val darkBlue = Color(0xFF020f59)
+val teal = Color(0xFF00c99e)
+val cyan = Color(0xFF5be3e3)

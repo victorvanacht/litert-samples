@@ -1,4 +1,20 @@
-package com.google.ai.edge.examples.victortest
+/*
+ * Copyright 2025 The Google AI Edge Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.google.ai.edge.examples.modelrunner.common
 
 import android.net.Uri
 import android.graphics.Color
@@ -34,8 +50,26 @@ data class UiState(
   val errorMessage: String? = null,
 )
 
+enum class AcceleratorChoice(val displayName: String) {
+  CPU("CPU"),
+  GPU("GPU"),
+}
+
+enum class RunMode {
+  SYNCHRONOUS,
+  ASYNCHRONOUS,
+}
+
 @Immutable
 data class ModelOption(val id: String, val displayName: String, val uri: Uri)
+
+data class ModelRunResult(
+  val displayName: String,
+  val inferenceTimeMillis: Long,
+  val tensorDescriptions: List<String>,
+)
+
+data class ThroughputResult(val inferencesPerSecond: Double, val tensorDescriptions: List<String>)
 
 @Immutable class OverlayInfo(val pixels: IntArray, val width: Int, val height: Int)
 

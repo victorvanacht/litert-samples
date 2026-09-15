@@ -2,27 +2,32 @@ package com.google.ai.edge.examples.victortestcpp
 
 import android.content.Context
 import android.net.Uri
+import com.google.ai.edge.examples.modelrunner.common.AcceleratorChoice
+import com.google.ai.edge.examples.modelrunner.common.InferenceRunner
+import com.google.ai.edge.examples.modelrunner.common.ModelRunResult
+import com.google.ai.edge.examples.modelrunner.common.ThroughputResult
+import com.google.ai.edge.litert.CompiledModel
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-class NativeModelRunner(private val context: Context) {
+class NativeModelRunner(private val context: Context) : InferenceRunner {
   companion object {
     init {
       System.loadLibrary("victortestcpp_jni")
     }
   }
 
-  suspend fun runSynchronous(
+  override suspend fun runSynchronous(
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
-    gpuPrecision: GpuPrecision,
-    gpuBackend: GpuBackend,
-    gpuPriority: GpuPriority,
-    gpuBufferStorageType: GpuBufferStorageType,
+    gpuPrecision: CompiledModel.GpuOptions.Precision,
+    gpuBackend: CompiledModel.GpuOptions.Backend,
+    gpuPriority: CompiledModel.GpuOptions.Priority,
+    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
     gpuPreferTextureWeights: Boolean,
     gpuConstantTensorSharing: Boolean,
     gpuInfiniteFloatCapping: Boolean,
@@ -37,7 +42,7 @@ class NativeModelRunner(private val context: Context) {
     val handle = nativePrepare(
       modelFile.absolutePath,
       if (accelerator == AcceleratorChoice.GPU) 1 else 0,
-      gpuPrecision.toNativeValue(),
+      gpuPrecision.ordinal,
       gpuBackend.ordinal,
       gpuPriority.ordinal,
       gpuBufferStorageType.ordinal,
@@ -67,14 +72,14 @@ class NativeModelRunner(private val context: Context) {
     }
   }
 
-  suspend fun runAsynchronous(
+  override suspend fun runAsynchronous(
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
-    gpuPrecision: GpuPrecision,
-    gpuBackend: GpuBackend,
-    gpuPriority: GpuPriority,
-    gpuBufferStorageType: GpuBufferStorageType,
+    gpuPrecision: CompiledModel.GpuOptions.Precision,
+    gpuBackend: CompiledModel.GpuOptions.Backend,
+    gpuPriority: CompiledModel.GpuOptions.Priority,
+    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
     gpuPreferTextureWeights: Boolean,
     gpuConstantTensorSharing: Boolean,
     gpuInfiniteFloatCapping: Boolean,
@@ -90,7 +95,7 @@ class NativeModelRunner(private val context: Context) {
     val handle = nativePrepare(
       modelFile.absolutePath,
       if (accelerator == AcceleratorChoice.GPU) 1 else 0,
-      gpuPrecision.toNativeValue(),
+      gpuPrecision.ordinal,
       gpuBackend.ordinal,
       gpuPriority.ordinal,
       gpuBufferStorageType.ordinal,
@@ -145,12 +150,6 @@ class NativeModelRunner(private val context: Context) {
   private external fun nativeRunConcurrent(handle: Long, concurrency: Int): Double
 
   private external fun nativeClose(handle: Long)
-
-  private fun GpuPrecision.toNativeValue() = when (this) {
-    GpuPrecision.DEFAULT -> 0
-    GpuPrecision.FP16 -> 1
-    GpuPrecision.FP32 -> 2
-  }
 
   private fun copyToCache(uri: Uri, displayName: String): File {
     val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.google.ai.edge.examples.victortest
+package com.google.ai.edge.examples.modelrunner.common
 
 import android.util.Log
 import kotlin.math.abs

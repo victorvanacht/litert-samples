@@ -2,6 +2,11 @@ package com.google.ai.edge.examples.victortest
 
 import android.content.Context
 import android.net.Uri
+import com.google.ai.edge.examples.modelrunner.common.AcceleratorChoice
+import com.google.ai.edge.examples.modelrunner.common.InferenceRunner
+import com.google.ai.edge.examples.modelrunner.common.ModelRunResult
+import com.google.ai.edge.examples.modelrunner.common.ThroughputResult
+import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.TensorBuffer
 import java.io.File
@@ -20,9 +25,9 @@ import kotlinx.coroutines.withContext
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.InterpreterApi
 
-class ModelRunner(private val context: Context) {
+class ModelRunner(private val context: Context) : InferenceRunner {
   /** Runs one inference at a time, waiting for each result before starting the next. */
-  suspend fun runSynchronous(
+  override suspend fun runSynchronous(
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
@@ -72,7 +77,7 @@ class ModelRunner(private val context: Context) {
    * its output is read, that slot immediately starts its next run. Reports aggregate throughput
    * (inferences/second) instead of a single latency, since individual calls now overlap.
    */
-  suspend fun runAsynchronous(
+  override suspend fun runAsynchronous(
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
@@ -303,41 +308,34 @@ class ModelRunner(private val context: Context) {
   }
 }
 
-enum class AcceleratorChoice(
-  val displayName: String,
-  val litertAccelerator: com.google.ai.edge.litert.Accelerator,
-) {
-  CPU("CPU", com.google.ai.edge.litert.Accelerator.CPU),
-  GPU("GPU", com.google.ai.edge.litert.Accelerator.GPU);
-
-  fun toCompiledModelOptions(
-    gpuPrecision: CompiledModel.GpuOptions.Precision,
-    gpuBackend: CompiledModel.GpuOptions.Backend,
-    gpuPriority: CompiledModel.GpuOptions.Priority,
-    gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
-    gpuPreferTextureWeights: Boolean,
-    gpuConstantTensorSharing: Boolean,
-    gpuInfiniteFloatCapping: Boolean,
-  ): CompiledModel.Options {
-    val options = CompiledModel.Options(litertAccelerator)
-    if (litertAccelerator == com.google.ai.edge.litert.Accelerator.GPU) {
-      options.gpuOptions = CompiledModel.GpuOptions(
-        precision = gpuPrecision,
-        backend = gpuBackend,
-        priority = gpuPriority,
-        bufferStorageType = gpuBufferStorageType,
-        preferTextureWeights = gpuPreferTextureWeights,
-        constantTensorSharing = gpuConstantTensorSharing,
-        infiniteFloatCapping = gpuInfiniteFloatCapping,
-      )
-    }
-    return options
-  }
+private fun AcceleratorChoice.toLitertAccelerator() = when (this) {
+  AcceleratorChoice.CPU -> Accelerator.CPU
+  AcceleratorChoice.GPU -> Accelerator.GPU
 }
 
-enum class RunMode {
-  SYNCHRONOUS,
-  ASYNCHRONOUS,
+private fun AcceleratorChoice.toCompiledModelOptions(
+  gpuPrecision: CompiledModel.GpuOptions.Precision,
+  gpuBackend: CompiledModel.GpuOptions.Backend,
+  gpuPriority: CompiledModel.GpuOptions.Priority,
+  gpuBufferStorageType: CompiledModel.GpuOptions.BufferStorageType,
+  gpuPreferTextureWeights: Boolean,
+  gpuConstantTensorSharing: Boolean,
+  gpuInfiniteFloatCapping: Boolean,
+): CompiledModel.Options {
+  val litertAccelerator = toLitertAccelerator()
+  val options = CompiledModel.Options(litertAccelerator)
+  if (litertAccelerator == Accelerator.GPU) {
+    options.gpuOptions = CompiledModel.GpuOptions(
+      precision = gpuPrecision,
+      backend = gpuBackend,
+      priority = gpuPriority,
+      bufferStorageType = gpuBufferStorageType,
+      preferTextureWeights = gpuPreferTextureWeights,
+      constantTensorSharing = gpuConstantTensorSharing,
+      infiniteFloatCapping = gpuInfiniteFloatCapping,
+    )
+  }
+  return options
 }
 
 private data class TensorShape(val dimensions: IntArray, val dataType: DataType, val elementCount: Int)
@@ -349,11 +347,3 @@ private class PreparedModel(
   val tensorDescriptions: List<String>,
   val cleanup: suspend () -> Unit,
 )
-
-data class ModelRunResult(
-  val displayName: String,
-  val inferenceTimeMillis: Long,
-  val tensorDescriptions: List<String>,
-)
-
-data class ThroughputResult(val inferencesPerSecond: Double, val tensorDescriptions: List<String>)

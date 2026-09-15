@@ -34,11 +34,23 @@ dependencyResolutionManagement {
     google()
     mavenCentral()
   }
+  // Shared with the victortestcpp sample so both projects stay on the same library versions.
+  versionCatalogs {
+    create("libs") {
+      from(files("../../model_runner_common/gradle/libs.versions.toml"))
+    }
+  }
 }
 
 rootProject.name = "victortest"
 
 include(":app")
+
+// Shared UI/view-model code with the victortestcpp sample, kept as a sibling directory so both
+// apps can build it without depending on each other's Gradle root project.
+include(":model_runner_common")
+
+project(":model_runner_common").projectDir = File(rootDir, "../../model_runner_common")
 
 include(":selfie_multiclass_ai_pack")
 

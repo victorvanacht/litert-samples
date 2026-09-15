@@ -1,4 +1,20 @@
-package com.google.ai.edge.examples.victortestcpp
+/*
+ * Copyright 2025 The Google AI Edge Authors. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.google.ai.edge.examples.modelrunner.common
 
 import android.content.Context
 import android.net.Uri
@@ -7,6 +23,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.google.ai.edge.litert.CompiledModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,19 +35,20 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class MainViewModel(
-  private val modelRunner: NativeModelRunner,
+  private val modelRunner: InferenceRunner,
   private val logFileWriter: LogFileWriter,
 ) : ViewModel() {
   companion object {
     private const val ASYNC_CONCURRENCY = 5
 
-    fun getFactory(context: Context) =
+    /** [createModelRunner] lets each app supply its own [InferenceRunner] implementation. */
+    fun getFactory(context: Context, createModelRunner: (Context) -> InferenceRunner) =
       object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
           if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             val appContext = context.applicationContext
-            return MainViewModel(NativeModelRunner(appContext), LogFileWriter(appContext)) as T
+            return MainViewModel(createModelRunner(appContext), LogFileWriter(appContext)) as T
           }
           throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
@@ -103,22 +121,22 @@ class MainViewModel(
     appendLog("Selected accelerator: ${accelerator.displayName}")
   }
 
-  fun selectGpuPrecision(precision: GpuPrecision) {
+  fun selectGpuPrecision(precision: CompiledModel.GpuOptions.Precision) {
     _uiState.update { it.copy(gpuPrecision = precision, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected GPU precision: ${precision.name}")
   }
 
-  fun selectGpuBackend(backend: GpuBackend) {
+  fun selectGpuBackend(backend: CompiledModel.GpuOptions.Backend) {
     _uiState.update { it.copy(gpuBackend = backend, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected GPU backend: ${backend.name}")
   }
 
-  fun selectGpuPriority(priority: GpuPriority) {
+  fun selectGpuPriority(priority: CompiledModel.GpuOptions.Priority) {
     _uiState.update { it.copy(gpuPriority = priority, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected GPU priority: ${priority.name}")
   }
 
-  fun selectGpuBufferStorageType(storageType: GpuBufferStorageType) {
+  fun selectGpuBufferStorageType(storageType: CompiledModel.GpuOptions.BufferStorageType) {
     _uiState.update { it.copy(gpuBufferStorageType = storageType, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected GPU buffer storage: ${storageType.name}")
   }
