@@ -87,6 +87,7 @@ class MainViewModel(
         models = (state.models + option).distinctBy { it.id },
         selectedModelId = option.id,
         inferenceTime = null,
+        recentInferenceTimes = emptyList(),
         inferencesPerSecond = null,
         tensorDescriptions = emptyList(),
       )
@@ -98,6 +99,7 @@ class MainViewModel(
       it.copy(
         selectedModelId = id,
         inferenceTime = null,
+        recentInferenceTimes = emptyList(),
         inferencesPerSecond = null,
         tensorDescriptions = emptyList(),
         logLines = emptyList(),
@@ -181,7 +183,7 @@ class MainViewModel(
   }
 
   fun selectRunMode(mode: RunMode) {
-    _uiState.update { it.copy(runMode = mode, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
+    _uiState.update { it.copy(runMode = mode, inferenceTime = null, recentInferenceTimes = emptyList(), inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected run mode: ${mode.name}")
   }
 
@@ -197,7 +199,7 @@ class MainViewModel(
     val option = _uiState.value.models.firstOrNull { it.id == _uiState.value.selectedModelId } ?: return
     val mode = _uiState.value.runMode
     runJob = viewModelScope.launch {
-      _uiState.update { it.copy(isRunning = true, errorMessage = null) }
+      _uiState.update { it.copy(isRunning = true, errorMessage = null, recentInferenceTimes = emptyList()) }
       appendLog("Starting $mode run")
       try {
         when (mode) {
@@ -223,6 +225,7 @@ class MainViewModel(
               _uiState.update {
                 it.copy(
                   inferenceTime = result.inferenceTimeMillis,
+                  recentInferenceTimes = (it.recentInferenceTimes + result.inferenceTimeMillis).takeLast(10),
                   tensorDescriptions = result.tensorDescriptions,
                 )
               }

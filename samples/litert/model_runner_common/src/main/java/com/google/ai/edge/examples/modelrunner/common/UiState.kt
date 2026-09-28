@@ -46,6 +46,7 @@ data class UiState(
   val gpuInfiniteFloatCapping: Boolean = true,
   val runMode: RunMode = RunMode.SYNCHRONOUS,
   val inferenceTime: Long? = null,
+  val recentInferenceTimes: List<Long> = emptyList(),
   val inferencesPerSecond: Double? = null,
   val tensorDescriptions: List<String> = emptyList(),
   val logLines: List<String> = emptyList(),

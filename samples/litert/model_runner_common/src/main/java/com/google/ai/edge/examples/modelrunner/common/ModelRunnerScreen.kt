@@ -138,7 +138,18 @@ fun ModelRunnerScreen(
       ) {
         when (uiState.runMode) {
           RunMode.SYNCHRONOUS ->
-            uiState.inferenceTime?.let { Text("$it ms", fontSize = 64.sp, style = MaterialTheme.typography.h3) }
+            uiState.inferenceTime?.let { latestTime ->
+              Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("$latestTime ms", fontSize = 64.sp, style = MaterialTheme.typography.h3)
+                if (uiState.recentInferenceTimes.isNotEmpty()) {
+                  val averageTime = uiState.recentInferenceTimes.average()
+                  Text(
+                    "Average (last ${uiState.recentInferenceTimes.size}): %.2f ms".format(averageTime),
+                    fontSize = 20.sp,
+                  )
+                }
+              }
+            }
           RunMode.ASYNCHRONOUS ->
             uiState.inferencesPerSecond?.let { rate ->
               Column(horizontalAlignment = Alignment.CenterHorizontally) {
