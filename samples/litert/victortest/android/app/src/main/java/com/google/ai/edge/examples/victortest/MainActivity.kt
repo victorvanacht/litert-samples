@@ -78,6 +78,32 @@ class MainActivity : ComponentActivity() {
           viewModel.setOutputFile(uri, name)
         }
       }
+      val cpuOutputFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) {
+          val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: uri.lastPathSegment
+            ?: "cpu_output.bin"
+          contentResolver.takePersistableUriPermission(
+            uri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+          )
+          viewModel.setCpuOutputFile(uri, name)
+        }
+      }
+      val gpuOutputFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) {
+          val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: uri.lastPathSegment
+            ?: "gpu_output.bin"
+          contentResolver.takePersistableUriPermission(
+            uri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+          )
+          viewModel.setGpuOutputFile(uri, name)
+        }
+      }
       LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let {
           Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
@@ -95,6 +121,10 @@ class MainActivity : ComponentActivity() {
           onClearInputFile = { viewModel.setInputFile(null, null) },
           onChooseOutputFile = { outputFilePicker.launch("output.bin") },
           onClearOutputFile = { viewModel.setOutputFile(null, null) },
+          onChooseCpuOutputFile = { cpuOutputFilePicker.launch("cpu_output.bin") },
+          onClearCpuOutputFile = { viewModel.setCpuOutputFile(null, null) },
+          onChooseGpuOutputFile = { gpuOutputFilePicker.launch("gpu_output.bin") },
+          onClearGpuOutputFile = { viewModel.setGpuOutputFile(null, null) },
           onSelectAccelerator = viewModel::selectAccelerator,
           onSetCpuThreadCount = viewModel::setCpuThreadCount,
           onSelectCpuKernelMode = viewModel::selectCpuKernelMode,

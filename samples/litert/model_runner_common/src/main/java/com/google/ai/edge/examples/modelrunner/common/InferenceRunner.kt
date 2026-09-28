@@ -43,7 +43,10 @@ interface InferenceRunner {
     gpuInfiniteFloatCapping: Boolean,
     inputFileUri: Uri?,
     outputFileUri: Uri?,
+    warmupRuns: Int = 0,
+    deferOutputWrites: Boolean = false,
     onLog: suspend (String) -> Unit,
+    onReady: suspend () -> Unit = {},
     onResult: suspend (ModelRunResult) -> Unit,
   )
 

@@ -19,6 +19,7 @@ import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,35 +45,57 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     gpuInfiniteFloatCapping: Boolean,
     inputFileUri: Uri?,
     outputFileUri: Uri?,
+    warmupRuns: Int,
+    deferOutputWrites: Boolean,
     onLog: suspend (String) -> Unit,
+    onReady: suspend () -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val prepared = prepareModel(uri, displayName, accelerator, cpuThreadCount, cpuKernelMode, xnnpackFlags, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
       val inputBuffers = prepared.model.createInputBuffers()
       val outputBuffers = prepared.model.createOutputBuffers()
+      var hasMeasuredInference = false
       try {
         onLog("Allocated ${inputBuffers.size} input buffer(s), ${outputBuffers.size} output buffer(s)")
         writeInputs(inputBuffers, prepared.inputShapes, inputFileUri)
+
+        repeat(warmupRuns) {
+          currentCoroutineContext().ensureActive()
+          prepared.model.run(inputBuffers, outputBuffers)
+          outputBuffers.forEachIndexed { index, buffer -> readOutput(buffer, prepared.outputShapes[index], false) }
+        }
+        currentCoroutineContext().ensureActive()
+        onReady()
 
         var iteration = 0
         onLog("Starting synchronous inference loop")
         while (currentCoroutineContext().isActive) {
           iteration++
-          val captureOutput = outputFileUri != null
+          val captureOutput = outputFileUri != null && !deferOutputWrites
           val startNanos = System.nanoTime()
           prepared.model.run(inputBuffers, outputBuffers)
           // Read back every output, like the working image_segmentation sample does. Skipping this
           // let the GPU backend enqueue work unbounded with no synchronization.
           val outputBytes = outputBuffers.mapIndexed { index, buffer -> readOutput(buffer, prepared.outputShapes[index], captureOutput) }
           val elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000
-          if (outputFileUri != null) writeOutputsToUri(outputBytes.filterNotNull(), outputFileUri)
+          hasMeasuredInference = true
+          if (outputFileUri != null && !deferOutputWrites) writeOutputsToUri(outputBytes.filterNotNull(), outputFileUri)
           onLog("Inference #$iteration: $elapsedMillis ms")
           onResult(ModelRunResult(displayName, elapsedMillis, prepared.tensorDescriptions))
         }
       } finally {
-        inputBuffers.forEach { it.close() }
-        outputBuffers.forEach { it.close() }
+        try {
+          if (deferOutputWrites && hasMeasuredInference && outputFileUri != null) {
+            val outputBytes = outputBuffers.mapIndexed { index, buffer ->
+              readOutput(buffer, prepared.outputShapes[index], true)
+            }
+            writeOutputsToUri(outputBytes.filterNotNull(), outputFileUri)
+          }
+        } finally {
+          inputBuffers.forEach { it.close() }
+          outputBuffers.forEach { it.close() }
+        }
       }
     } finally {
       prepared.cleanup()
@@ -335,9 +358,10 @@ class ModelRunner(private val context: Context) : InferenceRunner {
   }
 }
 
-private fun AcceleratorChoice.toLitertAccelerator() = when (this) {
-  AcceleratorChoice.CPU -> Accelerator.CPU
-  AcceleratorChoice.GPU -> Accelerator.GPU
+private fun AcceleratorChoice.toLitertAccelerators() = when (this) {
+  AcceleratorChoice.CPU -> setOf(Accelerator.CPU)
+  AcceleratorChoice.GPU -> setOf(Accelerator.GPU)
+  AcceleratorChoice.CPU_GPU -> setOf(Accelerator.CPU, Accelerator.GPU)
 }
 
 private fun AcceleratorChoice.toCompiledModelOptions(
@@ -352,15 +376,15 @@ private fun AcceleratorChoice.toCompiledModelOptions(
   gpuConstantTensorSharing: Boolean,
   gpuInfiniteFloatCapping: Boolean,
 ): CompiledModel.Options {
-  val litertAccelerator = toLitertAccelerator()
   require(cpuKernelMode == CpuKernelMode.XNNPACK) {
     "The LiteRT Java API supports only XNNPACK kernel mode"
   }
-  val options = CompiledModel.Options(litertAccelerator)
-  if (litertAccelerator == Accelerator.CPU) {
+  val litertAccelerators = toLitertAccelerators()
+  val options = CompiledModel.Options(litertAccelerators)
+  if (Accelerator.CPU in litertAccelerators) {
     options.cpuOptions = CompiledModel.CpuOptions(cpuThreadCount, xnnpackFlags, null)
   }
-  if (litertAccelerator == Accelerator.GPU) {
+  if (Accelerator.GPU in litertAccelerators) {
     options.gpuOptions = CompiledModel.GpuOptions(
       precision = gpuPrecision,
       backend = gpuBackend,

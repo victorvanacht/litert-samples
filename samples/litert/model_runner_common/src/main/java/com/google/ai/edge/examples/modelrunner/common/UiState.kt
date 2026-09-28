@@ -33,6 +33,10 @@ data class UiState(
   val inputFileName: String? = null,
   val outputFileUri: Uri? = null,
   val outputFileName: String? = null,
+  val cpuOutputFileUri: Uri? = null,
+  val cpuOutputFileName: String? = null,
+  val gpuOutputFileUri: Uri? = null,
+  val gpuOutputFileName: String? = null,
   val accelerator: AcceleratorChoice = AcceleratorChoice.GPU,
   val cpuThreadCount: Int = 16,
   val cpuKernelMode: CpuKernelMode = CpuKernelMode.XNNPACK,
@@ -48,6 +52,8 @@ data class UiState(
   val inferenceTime: Long? = null,
   val recentInferenceTimes: List<Long> = emptyList(),
   val inferencesPerSecond: Double? = null,
+  val cpuCompletedRuns: Int = 0,
+  val gpuCompletedRuns: Int = 0,
   val tensorDescriptions: List<String> = emptyList(),
   val logLines: List<String> = emptyList(),
   val isRunning: Boolean = false,
@@ -57,6 +63,7 @@ data class UiState(
 enum class AcceleratorChoice(val displayName: String) {
   CPU("CPU"),
   GPU("GPU"),
+  CPU_GPU("CPU+GPU"),
 }
 
 enum class CpuKernelMode(val displayName: String) {

@@ -25,8 +25,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.google.ai.edge.litert.CompiledModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -118,6 +120,16 @@ class MainViewModel(
     appendLog(if (uri != null) "Selected output file: $displayName" else "Cleared output file, discarding outputs")
   }
 
+  fun setCpuOutputFile(uri: Uri?, displayName: String?) {
+    _uiState.update { it.copy(cpuOutputFileUri = uri, cpuOutputFileName = displayName) }
+    appendLog(if (uri != null) "Selected CPU output file: $displayName" else "Cleared CPU output file")
+  }
+
+  fun setGpuOutputFile(uri: Uri?, displayName: String?) {
+    _uiState.update { it.copy(gpuOutputFileUri = uri, gpuOutputFileName = displayName) }
+    appendLog(if (uri != null) "Selected GPU output file: $displayName" else "Cleared GPU output file")
+  }
+
   fun selectAccelerator(accelerator: AcceleratorChoice) {
     _uiState.update { it.copy(accelerator = accelerator, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected accelerator: ${accelerator.displayName}")
@@ -191,35 +203,67 @@ class MainViewModel(
     if (_uiState.value.isRunning) {
       appendLog("Stop requested")
       runJob?.cancel()
-      runJob = null
-      _uiState.update { it.copy(isRunning = false) }
+      return
+    }
+    if (runJob?.isActive == true) return
+
+    val state = _uiState.value
+    val option = state.models.firstOrNull { it.id == state.selectedModelId } ?: return
+    val isPaired = state.accelerator == AcceleratorChoice.CPU_GPU
+    if (isPaired && ((state.cpuOutputFileUri == null) != (state.gpuOutputFileUri == null) ||
+          (state.cpuOutputFileUri != null && state.cpuOutputFileUri == state.gpuOutputFileUri))) {
+      _uiState.update { it.copy(errorMessage = "Choose distinct CPU and GPU output files, or neither") }
       return
     }
 
-    val option = _uiState.value.models.firstOrNull { it.id == _uiState.value.selectedModelId } ?: return
-    val mode = _uiState.value.runMode
-    runJob = viewModelScope.launch {
-      _uiState.update { it.copy(isRunning = true, errorMessage = null, recentInferenceTimes = emptyList()) }
-      appendLog("Starting $mode run")
+    lateinit var job: Job
+    job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+      val mode = if (isPaired) "paired CPU+GPU throughput" else "${state.runMode} run"
+      _uiState.update {
+        it.copy(
+          isRunning = true,
+          errorMessage = null,
+          inferenceTime = null,
+          recentInferenceTimes = emptyList(),
+          inferencesPerSecond = null,
+          cpuCompletedRuns = 0,
+          gpuCompletedRuns = 0,
+        )
+      }
+      appendLog("Starting $mode")
       try {
-        when (mode) {
+        if (isPaired) {
+          PairedInferenceRunner(modelRunner).run(
+            config = state.toPairedInferenceConfig(option),
+            onLog = ::appendLog,
+          ) { progress ->
+            _uiState.update {
+              it.copy(
+                inferencesPerSecond = progress.inferencesPerSecond,
+                cpuCompletedRuns = progress.cpuCompletedRuns,
+                gpuCompletedRuns = progress.gpuCompletedRuns,
+                tensorDescriptions = progress.tensorDescriptions,
+              )
+            }
+          }
+        } else when (state.runMode) {
           RunMode.SYNCHRONOUS ->
             modelRunner.runSynchronous(
               option.uri,
               option.displayName,
-              _uiState.value.accelerator,
-              _uiState.value.cpuThreadCount,
-              _uiState.value.cpuKernelMode,
-              _uiState.value.xnnpackFlags,
-              _uiState.value.gpuPrecision,
-              _uiState.value.gpuBackend,
-              _uiState.value.gpuPriority,
-              _uiState.value.gpuBufferStorageType,
-              _uiState.value.gpuPreferTextureWeights,
-              _uiState.value.gpuConstantTensorSharing,
-              _uiState.value.gpuInfiniteFloatCapping,
-              _uiState.value.inputFileUri,
-              _uiState.value.outputFileUri,
+              state.accelerator,
+              state.cpuThreadCount,
+              state.cpuKernelMode,
+              state.xnnpackFlags,
+              state.gpuPrecision,
+              state.gpuBackend,
+              state.gpuPriority,
+              state.gpuBufferStorageType,
+              state.gpuPreferTextureWeights,
+              state.gpuConstantTensorSharing,
+              state.gpuInfiniteFloatCapping,
+              state.inputFileUri,
+              state.outputFileUri,
               onLog = ::appendLog,
             ) { result ->
               _uiState.update {
@@ -234,19 +278,19 @@ class MainViewModel(
             modelRunner.runAsynchronous(
               option.uri,
               option.displayName,
-              _uiState.value.accelerator,
-              _uiState.value.cpuThreadCount,
-              _uiState.value.cpuKernelMode,
-              _uiState.value.xnnpackFlags,
-              _uiState.value.gpuPrecision,
-              _uiState.value.gpuBackend,
-              _uiState.value.gpuPriority,
-              _uiState.value.gpuBufferStorageType,
-              _uiState.value.gpuPreferTextureWeights,
-              _uiState.value.gpuConstantTensorSharing,
-              _uiState.value.gpuInfiniteFloatCapping,
-              _uiState.value.inputFileUri,
-              _uiState.value.outputFileUri,
+              state.accelerator,
+              state.cpuThreadCount,
+              state.cpuKernelMode,
+              state.xnnpackFlags,
+              state.gpuPrecision,
+              state.gpuBackend,
+              state.gpuPriority,
+              state.gpuBufferStorageType,
+              state.gpuPreferTextureWeights,
+              state.gpuConstantTensorSharing,
+              state.gpuInfiniteFloatCapping,
+              state.inputFileUri,
+              state.outputFileUri,
               concurrency = ASYNC_CONCURRENCY,
               onLog = ::appendLog,
             ) { result ->
@@ -268,21 +312,50 @@ class MainViewModel(
       } finally {
         _uiState.update { it.copy(isRunning = false) }
         appendLog("Stopped")
-        runJob = null
+        if (runJob === job) runJob = null
       }
     }
+    runJob = job
+    job.start()
   }
 
+  private fun UiState.toPairedInferenceConfig(option: ModelOption) = PairedInferenceConfig(
+    uri = option.uri,
+    displayName = option.displayName,
+    inputFileUri = inputFileUri,
+    cpuOutputFileUri = cpuOutputFileUri,
+    gpuOutputFileUri = gpuOutputFileUri,
+    cpuThreadCount = cpuThreadCount,
+    cpuKernelMode = cpuKernelMode,
+    xnnpackFlags = xnnpackFlags,
+    gpuPrecision = gpuPrecision,
+    gpuBackend = gpuBackend,
+    gpuPriority = gpuPriority,
+    gpuBufferStorageType = gpuBufferStorageType,
+    gpuPreferTextureWeights = gpuPreferTextureWeights,
+    gpuConstantTensorSharing = gpuConstantTensorSharing,
+    gpuInfiniteFloatCapping = gpuInfiniteFloatCapping,
+  )
+
   suspend fun runShellBenchmarkFromUi(config: ShellBenchmarkConfig): ShellBenchmarkResult {
-    require(config.runMode == RunMode.SYNCHRONOUS) {
+    require(config.accelerator == AcceleratorChoice.CPU_GPU || config.runMode == RunMode.SYNCHRONOUS) {
       "run_mode=ASYNCHRONOUS reports throughput in the UI and is not supported for average latency benchmarking"
     }
 
     addModel(config.modelUri, config.modelDisplayName)
     setInputFile(config.inputFileUri, config.inputFileUri?.lastPathSegment)
     setOutputFile(config.outputFileUri, config.outputFileUri?.lastPathSegment)
+    setCpuOutputFile(config.cpuOutputFileUri, config.cpuOutputFileUri?.lastPathSegment)
+    setGpuOutputFile(config.gpuOutputFileUri, config.gpuOutputFileUri?.lastPathSegment)
     selectRunMode(config.runMode)
     selectAccelerator(config.accelerator)
+    _uiState.update {
+      it.copy(
+        cpuThreadCount = config.cpuThreadCount,
+        cpuKernelMode = config.cpuKernelMode,
+        xnnpackFlags = config.xnnpackFlags,
+      )
+    }
     selectGpuPrecision(config.gpuPrecision)
     selectGpuBackend(config.gpuBackend)
     selectGpuPriority(config.gpuPriority)
@@ -293,6 +366,10 @@ class MainViewModel(
 
     val option = _uiState.value.models.firstOrNull { it.id == config.modelUri.toString() }
       ?: error("Selected model is unavailable: ${config.modelUri}")
+    if (config.accelerator == AcceleratorChoice.CPU_GPU) {
+      return runPairedShellBenchmark(option, config)
+    }
+
     val inferenceTimes = mutableListOf<Long>()
     var completedRuns = 0
     var tensorDescriptions = emptyList<String>()
@@ -344,6 +421,53 @@ class MainViewModel(
       "Benchmark stopped after ${inferenceTimes.size} measured runs; expected ${config.runs}"
     }
     return ShellBenchmarkResult(inferenceTimes, tensorDescriptions)
+  }
+
+  private suspend fun runPairedShellBenchmark(
+    option: ModelOption,
+    config: ShellBenchmarkConfig,
+  ): ShellBenchmarkResult {
+    _uiState.update {
+      it.copy(
+        isRunning = true,
+        errorMessage = null,
+        inferenceTime = null,
+        inferencesPerSecond = null,
+        cpuCompletedRuns = 0,
+        gpuCompletedRuns = 0,
+      )
+    }
+    appendLog("Starting UI-driven paired CPU+GPU shell benchmark")
+    try {
+      val result = PairedInferenceRunner(modelRunner).run(
+        config = _uiState.value.toPairedInferenceConfig(option),
+        warmupRuns = config.warmupRuns,
+        maxMeasuredRuns = config.runs,
+        onLog = ::appendLog,
+      ) { progress ->
+        _uiState.update {
+          it.copy(
+            inferencesPerSecond = progress.inferencesPerSecond,
+            cpuCompletedRuns = progress.cpuCompletedRuns,
+            gpuCompletedRuns = progress.gpuCompletedRuns,
+            tensorDescriptions = progress.tensorDescriptions,
+          )
+        }
+      }
+      check(result.completedRuns == config.runs) {
+        "Benchmark completed ${result.completedRuns} measured runs; expected ${config.runs}"
+      }
+      return ShellBenchmarkResult(emptyList(), result.tensorDescriptions, result)
+    } catch (error: CancellationException) {
+      throw error
+    } catch (error: Exception) {
+      appendLog("Error: ${error.message ?: error.javaClass.simpleName}")
+      _uiState.update { it.copy(errorMessage = error.message ?: error.javaClass.simpleName) }
+      throw error
+    } finally {
+      _uiState.update { it.copy(isRunning = false) }
+      appendLog("Stopped")
+    }
   }
 
   fun errorMessageShown() {

@@ -115,11 +115,14 @@ abstract class ShellBenchmarkInstrumentation : Instrumentation() {
         appendResult("model_display_name", config.modelDisplayName)
         appendResult("input", config.inputFileUri?.toString().orEmpty())
         appendResult("output", config.outputFileUri?.toString().orEmpty())
+        appendResult("cpu_output", config.cpuOutputFileUri?.toString().orEmpty())
+        appendResult("gpu_output", config.gpuOutputFileUri?.toString().orEmpty())
         appendResult("runs", config.runs.toString())
         appendResult("warmup_runs", config.warmupRuns.toString())
         appendLine()
 
         appendResult("run_mode", config.runMode.name)
+        appendResult("effective_run_mode", if (config.accelerator == AcceleratorChoice.CPU_GPU) "PAIRED_THROUGHPUT" else config.runMode.name)
         appendResult("accelerator", config.accelerator.name)
         appendResult("cpu_thread_count", config.cpuThreadCount.toString())
         appendResult("cpu_kernel_mode", config.cpuKernelMode.name)
@@ -138,9 +141,18 @@ abstract class ShellBenchmarkInstrumentation : Instrumentation() {
 
         appendResult("status", "ok")
         appendResult("tensor_descriptions", benchmark.tensorDescriptions.joinToString(separator = "; "))
-        appendResult("total_inference_time_ms", benchmark.totalInferenceTimeMillis.toString())
-        appendResult("average_inference_time_ms", benchmark.averageInferenceTimeMillis.toString())
-        appendResult("inference_times_ms", benchmark.inferenceTimesMillis.joinToString(prefix = "[", postfix = "]"))
+        val paired = benchmark.pairedThroughput
+        if (paired != null) {
+          appendResult("measured_inference_count", paired.completedRuns.toString())
+          appendResult("elapsed_time_ms", paired.elapsedMillis.toString())
+          appendResult("total_inferences_per_second", paired.inferencesPerSecond.toString())
+          appendResult("cpu_completed_runs", paired.cpuCompletedRuns.toString())
+          appendResult("gpu_completed_runs", paired.gpuCompletedRuns.toString())
+        } else {
+          appendResult("total_inference_time_ms", benchmark.totalInferenceTimeMillis.toString())
+          appendResult("average_inference_time_ms", benchmark.averageInferenceTimeMillis.toString())
+          appendResult("inference_times_ms", benchmark.inferenceTimesMillis.joinToString(prefix = "[", postfix = "]"))
+        }
       }
     }
 
@@ -165,6 +177,8 @@ data class ShellBenchmarkConfig(
   val modelDisplayName: String,
   val inputFileUri: Uri?,
   val outputFileUri: Uri?,
+  val cpuOutputFileUri: Uri?,
+  val gpuOutputFileUri: Uri?,
   val accelerator: AcceleratorChoice,
   val cpuThreadCount: Int,
   val cpuKernelMode: CpuKernelMode,
@@ -185,9 +199,26 @@ data class ShellBenchmarkConfig(
       val defaults = UiState()
       val modelValue = arguments.getString("model") ?: "asset://selfie_multiclass.tflite"
       val modelUri = parseShellUri(modelValue)
+      val accelerator = enumExtra<AcceleratorChoice>(arguments, "accelerator", defaults.accelerator)
       val runMode = enumExtra<RunMode>(arguments, "run_mode", defaults.runMode)
-      require(runMode == RunMode.SYNCHRONOUS) {
+      require(accelerator == AcceleratorChoice.CPU_GPU || runMode == RunMode.SYNCHRONOUS) {
         "run_mode=ASYNCHRONOUS reports throughput in the UI and is not supported for average latency benchmarking"
+      }
+      val outputFileUri = arguments.getString("output")?.let(::parseShellUri)
+      val cpuOutputFileUri = arguments.getString("cpu_output")?.let(::parseShellUri)
+      val gpuOutputFileUri = arguments.getString("gpu_output")?.let(::parseShellUri)
+      if (accelerator == AcceleratorChoice.CPU_GPU) {
+        require(outputFileUri == null) { "Use cpu_output and gpu_output instead of output for CPU+GPU" }
+        require((cpuOutputFileUri == null) == (gpuOutputFileUri == null)) {
+          "cpu_output and gpu_output must both be provided or both be omitted"
+        }
+        require(cpuOutputFileUri == null || cpuOutputFileUri != gpuOutputFileUri) {
+          "cpu_output and gpu_output must refer to different files"
+        }
+      } else {
+        require(cpuOutputFileUri == null && gpuOutputFileUri == null) {
+          "cpu_output and gpu_output are only supported for CPU+GPU"
+        }
       }
       val runs = arguments.getIntExtra("runs", 1)
       val warmupRuns = arguments.getIntExtra("warmup_runs", 0)
@@ -197,8 +228,10 @@ data class ShellBenchmarkConfig(
         modelUri = modelUri,
         modelDisplayName = arguments.getString("model_display_name") ?: displayNameFor(modelUri, modelValue),
         inputFileUri = arguments.getString("input")?.let(::parseShellUri),
-        outputFileUri = arguments.getString("output")?.let(::parseShellUri),
-        accelerator = enumExtra(arguments, "accelerator", defaults.accelerator),
+        outputFileUri = outputFileUri,
+        cpuOutputFileUri = cpuOutputFileUri,
+        gpuOutputFileUri = gpuOutputFileUri,
+        accelerator = accelerator,
         cpuThreadCount = arguments.getIntExtra("cpu_thread_count", defaults.cpuThreadCount).also {
           require(it > 0) { "cpu_thread_count must be greater than 0" }
         },
@@ -275,15 +308,28 @@ data class ShellBenchmarkConfig(
 data class ShellBenchmarkResult(
   val inferenceTimesMillis: List<Long>,
   val tensorDescriptions: List<String>,
+  val pairedThroughput: PairedInferenceResult? = null,
 ) {
   val totalInferenceTimeMillis: Long = inferenceTimesMillis.sum()
-  val averageInferenceTimeMillis: Double = totalInferenceTimeMillis.toDouble() / inferenceTimesMillis.size
+  val averageInferenceTimeMillis: Double =
+    if (inferenceTimesMillis.isEmpty()) 0.0 else totalInferenceTimeMillis.toDouble() / inferenceTimesMillis.size
 }
 
 suspend fun runShellBenchmark(
   modelRunner: InferenceRunner,
   config: ShellBenchmarkConfig,
 ): ShellBenchmarkResult {
+  if (config.accelerator == AcceleratorChoice.CPU_GPU) {
+    val paired = PairedInferenceRunner(modelRunner).run(
+      config = config.toPairedInferenceConfig(),
+      warmupRuns = config.warmupRuns,
+      maxMeasuredRuns = config.runs,
+      onLog = { Log.i("ShellBenchmark", it) },
+      onProgress = {},
+    )
+    return ShellBenchmarkResult(emptyList(), paired.tensorDescriptions, paired)
+  }
+
   val inferenceTimes = mutableListOf<Long>()
   var completedRuns = 0
   var tensorDescriptions = emptyList<String>()
@@ -319,5 +365,23 @@ suspend fun runShellBenchmark(
   }
   return ShellBenchmarkResult(inferenceTimes, tensorDescriptions)
 }
+
+private fun ShellBenchmarkConfig.toPairedInferenceConfig() = PairedInferenceConfig(
+  uri = modelUri,
+  displayName = modelDisplayName,
+  inputFileUri = inputFileUri,
+  cpuOutputFileUri = cpuOutputFileUri,
+  gpuOutputFileUri = gpuOutputFileUri,
+  cpuThreadCount = cpuThreadCount,
+  cpuKernelMode = cpuKernelMode,
+  xnnpackFlags = xnnpackFlags,
+  gpuPrecision = gpuPrecision,
+  gpuBackend = gpuBackend,
+  gpuPriority = gpuPriority,
+  gpuBufferStorageType = gpuBufferStorageType,
+  gpuPreferTextureWeights = gpuPreferTextureWeights,
+  gpuConstantTensorSharing = gpuConstantTensorSharing,
+  gpuInfiniteFloatCapping = gpuInfiniteFloatCapping,
+)
 
 private class ShellBenchmarkComplete : CancellationException("Shell benchmark complete")
