@@ -21,6 +21,7 @@ import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.google.ai.edge.examples.modelrunner.common.CpuKernelMode
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -96,6 +97,10 @@ class MainActivity : ComponentActivity() {
           onChooseOutputFile = { outputFilePicker.launch("output.bin") },
           onClearOutputFile = { viewModel.setOutputFile(null, null) },
           onSelectAccelerator = viewModel::selectAccelerator,
+          onSetCpuThreadCount = viewModel::setCpuThreadCount,
+          onSelectCpuKernelMode = viewModel::selectCpuKernelMode,
+          onSetXnnpackFlag = viewModel::setXnnpackFlag,
+          supportedCpuKernelModes = CpuKernelMode.entries.toSet(),
           onSelectGpuPrecision = viewModel::selectGpuPrecision,
           onSelectGpuBackend = viewModel::selectGpuBackend,
           onSelectGpuPriority = viewModel::selectGpuPriority,

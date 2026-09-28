@@ -34,6 +34,9 @@ data class UiState(
   val outputFileUri: Uri? = null,
   val outputFileName: String? = null,
   val accelerator: AcceleratorChoice = AcceleratorChoice.GPU,
+  val cpuThreadCount: Int = 16,
+  val cpuKernelMode: CpuKernelMode = CpuKernelMode.XNNPACK,
+  val xnnpackFlags: Int = 0,
   val gpuPrecision: CompiledModel.GpuOptions.Precision = CompiledModel.GpuOptions.Precision.FP16,
   val gpuBackend: CompiledModel.GpuOptions.Backend = CompiledModel.GpuOptions.Backend.OPENCL,
   val gpuPriority: CompiledModel.GpuOptions.Priority = CompiledModel.GpuOptions.Priority.HIGH,
@@ -53,6 +56,26 @@ data class UiState(
 enum class AcceleratorChoice(val displayName: String) {
   CPU("CPU"),
   GPU("GPU"),
+}
+
+enum class CpuKernelMode(val displayName: String) {
+  XNNPACK("XNNPACK"),
+  BUILTIN("LiteRT built-in"),
+  REFERENCE("LiteRT reference"),
+}
+
+enum class XnnpackFlag(val displayName: String, val bit: Int) {
+  QS8("Signed int8 operators", 0x00000001),
+  QU8("Unsigned uint8 operators", 0x00000002),
+  FORCE_FP16("Force FP16", 0x00000004),
+  DYNAMIC_FULLY_CONNECTED("Dynamic fully connected", 0x00000008),
+  VARIABLE_OPERATORS("Variable operators", 0x00000010),
+  TRANSIENT_INDIRECTION_BUFFER("Transient indirection buffer", 0x00000020),
+  ENABLE_LATEST_OPERATORS("Latest operators", 0x00000040),
+  ENABLE_SUBGRAPH_RESHAPING("Enable subgraph reshaping", 0x00000080),
+  SLOW_CONSISTENT_ARITHMETIC("Slow consistent arithmetic", 0x00000200),
+  DISABLE_SUBGRAPH_RESHAPING("Disable subgraph reshaping", 0x00000400),
+  DISABLE_DYNAMICALLY_QUANTIZED_OPS("Disable dynamic quantized ops", 0x00000800),
 }
 
 enum class RunMode {

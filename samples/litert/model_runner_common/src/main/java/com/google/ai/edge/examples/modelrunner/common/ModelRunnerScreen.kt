@@ -33,6 +33,7 @@ import androidx.compose.material.DropdownMenu
 import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedButton
+import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Switch
 import androidx.compose.material.Text
 import androidx.compose.material.TopAppBar
@@ -47,6 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.google.ai.edge.litert.CompiledModel
 
 /** Full screen for both victortest and victortestcpp: model/file pickers, run controls, results, logs. */
@@ -61,6 +64,10 @@ fun ModelRunnerScreen(
   onChooseOutputFile: () -> Unit,
   onClearOutputFile: () -> Unit,
   onSelectAccelerator: (AcceleratorChoice) -> Unit,
+  onSetCpuThreadCount: (Int) -> Unit,
+  onSelectCpuKernelMode: (CpuKernelMode) -> Unit,
+  onSetXnnpackFlag: (XnnpackFlag, Boolean) -> Unit,
+  supportedCpuKernelModes: Set<CpuKernelMode> = setOf(CpuKernelMode.XNNPACK),
   onSelectGpuPrecision: (CompiledModel.GpuOptions.Precision) -> Unit,
   onSelectGpuBackend: (CompiledModel.GpuOptions.Backend) -> Unit,
   onSelectGpuPriority: (CompiledModel.GpuOptions.Priority) -> Unit,
@@ -98,7 +105,19 @@ fun ModelRunnerScreen(
       )
       RunModeSelector(uiState.runMode, onSelectRunMode)
       AcceleratorSelector(uiState.accelerator, onSelectAccelerator)
-      if (uiState.accelerator != AcceleratorChoice.CPU) {
+      if (uiState.accelerator == AcceleratorChoice.CPU) {
+        CpuKernelModeSelector(uiState.cpuKernelMode, supportedCpuKernelModes, onSelectCpuKernelMode)
+        if (uiState.cpuKernelMode == CpuKernelMode.XNNPACK) {
+          CpuThreadCountField(uiState.cpuThreadCount, onSetCpuThreadCount)
+          XnnpackFlag.entries.forEach { flag ->
+            GpuOptionSwitch(
+              flag.displayName,
+              uiState.xnnpackFlags and flag.bit != 0,
+              { enabled -> onSetXnnpackFlag(flag, enabled) },
+            )
+          }
+        }
+      } else {
         GpuPrecisionSelector(uiState.gpuPrecision, onSelectGpuPrecision)
         GpuBackendSelector(uiState.gpuBackend, onSelectGpuBackend)
         GpuPrioritySelector(uiState.gpuPriority, onSelectGpuPriority)
@@ -130,6 +149,42 @@ fun ModelRunnerScreen(
         }
       }
       uiState.tensorDescriptions.forEach { Text(it) }
+    }
+  }
+}
+
+@Composable
+private fun CpuThreadCountField(selected: Int, onSet: (Int) -> Unit) {
+  var text by remember(selected) { mutableStateOf(selected.toString()) }
+  OutlinedTextField(
+    value = text,
+    onValueChange = { value ->
+      text = value.filter(Char::isDigit)
+      text.toIntOrNull()?.takeIf { it > 0 }?.let(onSet)
+    },
+    label = { Text("XNNPACK CPU threads") },
+    singleLine = true,
+    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    modifier = Modifier.fillMaxWidth(),
+  )
+}
+
+@Composable
+private fun CpuKernelModeSelector(
+  selected: CpuKernelMode,
+  supported: Set<CpuKernelMode>,
+  onSelect: (CpuKernelMode) -> Unit,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Text("CPU kernel mode")
+    OutlinedButton(onClick = { expanded = true }) { Text(selected.displayName) }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      supported.forEach { mode ->
+        DropdownMenuItem(onClick = { onSelect(mode); expanded = false }) {
+          Text(mode.displayName)
+        }
+      }
     }
   }
 }

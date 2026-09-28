@@ -121,6 +121,30 @@ class MainViewModel(
     appendLog("Selected accelerator: ${accelerator.displayName}")
   }
 
+  fun setCpuThreadCount(threadCount: Int) {
+    require(threadCount > 0)
+    _uiState.update { it.copy(cpuThreadCount = threadCount, inferenceTime = null, inferencesPerSecond = null) }
+    appendLog("XNNPACK CPU threads: $threadCount")
+  }
+
+  fun selectCpuKernelMode(kernelMode: CpuKernelMode) {
+    _uiState.update { it.copy(cpuKernelMode = kernelMode, inferenceTime = null, inferencesPerSecond = null) }
+    appendLog("CPU kernel mode: ${kernelMode.displayName}")
+  }
+
+  fun setXnnpackFlag(flag: XnnpackFlag, enabled: Boolean) {
+    _uiState.update { state ->
+      var flags = if (enabled) state.xnnpackFlags or flag.bit else state.xnnpackFlags and flag.bit.inv()
+      if (enabled && flag == XnnpackFlag.ENABLE_SUBGRAPH_RESHAPING) {
+        flags = flags and XnnpackFlag.DISABLE_SUBGRAPH_RESHAPING.bit.inv()
+      } else if (enabled && flag == XnnpackFlag.DISABLE_SUBGRAPH_RESHAPING) {
+        flags = flags and XnnpackFlag.ENABLE_SUBGRAPH_RESHAPING.bit.inv()
+      }
+      state.copy(xnnpackFlags = flags, inferenceTime = null, inferencesPerSecond = null)
+    }
+    appendLog("XNNPACK flag ${flag.displayName}: $enabled")
+  }
+
   fun selectGpuPrecision(precision: CompiledModel.GpuOptions.Precision) {
     _uiState.update { it.copy(gpuPrecision = precision, inferenceTime = null, inferencesPerSecond = null, logLines = emptyList()) }
     appendLog("Selected GPU precision: ${precision.name}")
@@ -182,6 +206,9 @@ class MainViewModel(
               option.uri,
               option.displayName,
               _uiState.value.accelerator,
+              _uiState.value.cpuThreadCount,
+              _uiState.value.cpuKernelMode,
+              _uiState.value.xnnpackFlags,
               _uiState.value.gpuPrecision,
               _uiState.value.gpuBackend,
               _uiState.value.gpuPriority,
@@ -205,6 +232,9 @@ class MainViewModel(
               option.uri,
               option.displayName,
               _uiState.value.accelerator,
+              _uiState.value.cpuThreadCount,
+              _uiState.value.cpuKernelMode,
+              _uiState.value.xnnpackFlags,
               _uiState.value.gpuPrecision,
               _uiState.value.gpuBackend,
               _uiState.value.gpuPriority,
@@ -270,6 +300,9 @@ class MainViewModel(
         option.uri,
         option.displayName,
         _uiState.value.accelerator,
+        _uiState.value.cpuThreadCount,
+        _uiState.value.cpuKernelMode,
+        _uiState.value.xnnpackFlags,
         _uiState.value.gpuPrecision,
         _uiState.value.gpuBackend,
         _uiState.value.gpuPriority,

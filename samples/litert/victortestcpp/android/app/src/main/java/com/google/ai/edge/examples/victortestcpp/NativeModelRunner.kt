@@ -3,6 +3,7 @@ package com.google.ai.edge.examples.victortestcpp
 import android.content.Context
 import android.net.Uri
 import com.google.ai.edge.examples.modelrunner.common.AcceleratorChoice
+import com.google.ai.edge.examples.modelrunner.common.CpuKernelMode
 import com.google.ai.edge.examples.modelrunner.common.InferenceRunner
 import com.google.ai.edge.examples.modelrunner.common.ModelRunResult
 import com.google.ai.edge.examples.modelrunner.common.ThroughputResult
@@ -24,6 +25,9 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    cpuThreadCount: Int,
+    cpuKernelMode: CpuKernelMode,
+    xnnpackFlags: Int,
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -42,6 +46,9 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     val handle = nativePrepare(
       modelFile.absolutePath,
       if (accelerator == AcceleratorChoice.GPU) 1 else 0,
+      cpuThreadCount,
+      cpuKernelMode.ordinal,
+      xnnpackFlags,
       gpuPrecision.ordinal,
       gpuBackend.ordinal,
       gpuPriority.ordinal,
@@ -76,6 +83,9 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    cpuThreadCount: Int,
+    cpuKernelMode: CpuKernelMode,
+    xnnpackFlags: Int,
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -95,6 +105,9 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     val handle = nativePrepare(
       modelFile.absolutePath,
       if (accelerator == AcceleratorChoice.GPU) 1 else 0,
+      cpuThreadCount,
+      cpuKernelMode.ordinal,
+      xnnpackFlags,
       gpuPrecision.ordinal,
       gpuBackend.ordinal,
       gpuPriority.ordinal,
@@ -132,6 +145,9 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
   private external fun nativePrepare(
     modelPath: String,
     accelerator: Int,
+    cpuThreadCount: Int,
+    cpuKernelMode: Int,
+    xnnpackFlags: Int,
     precision: Int,
     backend: Int,
     priority: Int,

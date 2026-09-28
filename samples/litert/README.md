@@ -90,6 +90,27 @@ adb shell am instrument -w \
 
 To run the same configuration against `victortestcpp`, replace the package paths and component with `com.google.ai.edge.examples.victortestcpp`.
 
+## CPU/XNNPACK command example
+
+Use `accelerator=CPU` to configure the CPU backend. `XNNPACK` supports the thread count and flag settings below. The `BUILTIN` and `REFERENCE` kernel modes do not use XNNPACK, so their thread and flag settings are ignored.
+
+```sh
+adb shell am instrument -w \
+	-e model /sdcard/Android/data/com.google.ai.edge.examples.victortest/files/models/yourmodel.tflite \
+	-e model_display_name yourmodel.tflite \
+	-e runs 20 \
+	-e warmup_runs 5 \
+	-e accelerator CPU \
+	-e cpu_thread_count 16 \
+	-e cpu_kernel_mode XNNPACK \
+	-e xnnpack_force_fp16 false \
+	-e xnnpack_enable_latest_operators true \
+	-e xnnpack_slow_consistent_arithmetic false \
+	com.google.ai.edge.examples.victortest/.ShellBenchmarkInstrumentation
+```
+
+The same command works with `victortestcpp` after replacing the package and instrumentation component. Named flags are merged into the integer `xnnpack_flags` bitmask. For advanced use, set the bitmask directly with a decimal integer; a named flag takes precedence for its individual bit.
+
 ## Command-line options
 
 All options are passed with `adb shell am instrument -w -e <name> <value> ...`. Enum values are case-insensitive. Boolean values accept `true`, `false`, `1`, `0`, `yes`, `no`, `y`, `n`, `on`, and `off`.
@@ -104,6 +125,20 @@ All options are passed with `adb shell am instrument -w -e <name> <value> ...`. 
 | `warmup_runs` | `0` | Integer greater than or equal to `0` | Number of initial inference runs to execute before measuring. Warmup runs are not included in the reported timing metrics. |
 | `run_mode` | `SYNCHRONOUS` | `SYNCHRONOUS` | Latency benchmarking currently supports synchronous mode only. `ASYNCHRONOUS` is a UI throughput mode and is rejected by this command-line benchmark. |
 | `accelerator` | `GPU` | `CPU`, `GPU` | Accelerator used to compile and run the model. GPU-specific options are only applied when `accelerator=GPU`. |
+| `cpu_thread_count` | `16` | Integer greater than `0` | Number of XNNPACK CPU threads. Applied when `accelerator=CPU` and `cpu_kernel_mode=XNNPACK`. |
+| `cpu_kernel_mode` | `XNNPACK` | `XNNPACK`, `BUILTIN`, `REFERENCE` | CPU kernel implementation. `BUILTIN` and `REFERENCE` use LiteRT kernels instead of XNNPACK. |
+| `xnnpack_flags` | `0` | Decimal integer bitmask | Aggregate XNNPACK flag bitmask. Named `xnnpack_*` options below can set individual bits. |
+| `xnnpack_qs8` | `false` | Boolean | Enable signed int8 XNNPACK operators (`0x1`). |
+| `xnnpack_qu8` | `false` | Boolean | Enable unsigned uint8 XNNPACK operators (`0x2`). |
+| `xnnpack_force_fp16` | `false` | Boolean | Force FP16 execution for FP32 operators where supported (`0x4`). |
+| `xnnpack_dynamic_fully_connected` | `false` | Boolean | Enable dynamic-weight fully connected operators (`0x8`). |
+| `xnnpack_variable_operators` | `false` | Boolean | Enable variable tensor operators (`0x10`). |
+| `xnnpack_transient_indirection_buffer` | `false` | Boolean | Use a transient indirection buffer to reduce memory usage (`0x20`). |
+| `xnnpack_enable_latest_operators` | `false` | Boolean | Enable latest XNNPACK operators and features (`0x40`). |
+| `xnnpack_enable_subgraph_reshaping` | `false` | Boolean | Enable dynamic subgraph reshaping (`0x80`). Mutually exclusive with `xnnpack_disable_subgraph_reshaping`. |
+| `xnnpack_slow_consistent_arithmetic` | `false` | Boolean | Prefer numerically consistent arithmetic paths (`0x200`). |
+| `xnnpack_disable_subgraph_reshaping` | `false` | Boolean | Disable dynamic subgraph reshaping (`0x400`). Mutually exclusive with `xnnpack_enable_subgraph_reshaping`. |
+| `xnnpack_disable_dynamically_quantized_ops` | `false` | Boolean | Disable dynamically quantized operators (`0x800`). |
 | `gpu_precision` | `FP16` | `DEFAULT`, `FP16`, `FP32` | GPU precision preference. |
 | `gpu_backend` | `OPENCL` | `AUTOMATIC`, `OPENCL`, `WEBGPU`, `OPENGL` | GPU backend preference. Availability depends on the device and LiteRT runtime. |
 | `gpu_priority` | `HIGH` | `DEFAULT`, `LOW`, `NORMAL`, `HIGH` | GPU execution priority preference. |
@@ -128,6 +163,9 @@ INSTRUMENTATION_RESULT: warmup_runs=5
 
 INSTRUMENTATION_RESULT: run_mode=SYNCHRONOUS
 INSTRUMENTATION_RESULT: accelerator=GPU
+INSTRUMENTATION_RESULT: cpu_thread_count=16
+INSTRUMENTATION_RESULT: cpu_kernel_mode=XNNPACK
+INSTRUMENTATION_RESULT: xnnpack_flags=0
 INSTRUMENTATION_RESULT: gpu_precision=FP16
 INSTRUMENTATION_RESULT: gpu_backend=OPENCL
 INSTRUMENTATION_RESULT: gpu_priority=HIGH

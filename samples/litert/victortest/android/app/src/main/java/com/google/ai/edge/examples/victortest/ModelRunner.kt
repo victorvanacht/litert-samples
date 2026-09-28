@@ -3,6 +3,7 @@ package com.google.ai.edge.examples.victortest
 import android.content.Context
 import android.net.Uri
 import com.google.ai.edge.examples.modelrunner.common.AcceleratorChoice
+import com.google.ai.edge.examples.modelrunner.common.CpuKernelMode
 import com.google.ai.edge.examples.modelrunner.common.InferenceRunner
 import com.google.ai.edge.examples.modelrunner.common.ModelRunResult
 import com.google.ai.edge.examples.modelrunner.common.ThroughputResult
@@ -31,6 +32,9 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    cpuThreadCount: Int,
+    cpuKernelMode: CpuKernelMode,
+    xnnpackFlags: Int,
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -43,7 +47,7 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     onLog: suspend (String) -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
-    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
+    val prepared = prepareModel(uri, displayName, accelerator, cpuThreadCount, cpuKernelMode, xnnpackFlags, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
       val inputBuffers = prepared.model.createInputBuffers()
       val outputBuffers = prepared.model.createOutputBuffers()
@@ -84,6 +88,9 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    cpuThreadCount: Int,
+    cpuKernelMode: CpuKernelMode,
+    xnnpackFlags: Int,
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -97,7 +104,7 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     onLog: suspend (String) -> Unit,
     onThroughput: suspend (ThroughputResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
-    val prepared = prepareModel(uri, displayName, accelerator, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
+    val prepared = prepareModel(uri, displayName, accelerator, cpuThreadCount, cpuKernelMode, xnnpackFlags, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
       val captureOutput = outputFileUri != null
       val slots =
@@ -154,6 +161,9 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     uri: Uri,
     displayName: String,
     accelerator: AcceleratorChoice,
+    cpuThreadCount: Int,
+    cpuKernelMode: CpuKernelMode,
+    xnnpackFlags: Int,
     gpuPrecision: CompiledModel.GpuOptions.Precision,
     gpuBackend: CompiledModel.GpuOptions.Backend,
     gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -175,7 +185,7 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     onLog("Found ${inputShapes.size} input tensor(s), ${outputShapes.size} output tensor(s)")
 
     onLog("Compiling model for ${accelerator.displayName}")
-    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions(gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping))
+    val model = CompiledModel.create(modelFile.absolutePath, accelerator.toCompiledModelOptions(cpuThreadCount, cpuKernelMode, xnnpackFlags, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping))
     onLog("Compiled model")
 
     val tensorDescriptions =
@@ -192,16 +202,30 @@ class ModelRunner(private val context: Context) : InferenceRunner {
 
   /** Loads the model with the TFLite Interpreter solely to read tensor shapes/types, then closes it. */
   private fun inspectTensorShapes(modelFile: File): Pair<List<TensorShape>, List<TensorShape>> {
-    InterpreterApi.create(modelFile, InterpreterApi.Options()).use { interpreter ->
-      val inputs = (0 until interpreter.inputTensorCount).map { index ->
-        val tensor = interpreter.getInputTensor(index)
-        TensorShape(tensor.shape(), tensor.dataType(), tensor.numElements())
+    try {
+      InterpreterApi.create(modelFile, InterpreterApi.Options()).use { interpreter ->
+        val inputs = (0 until interpreter.inputTensorCount).map { index ->
+          val tensor = interpreter.getInputTensor(index)
+          TensorShape(tensor.shape(), tensor.dataType(), tensor.numElements())
+        }
+        val outputs = (0 until interpreter.outputTensorCount).map { index ->
+          val tensor = interpreter.getOutputTensor(index)
+          TensorShape(tensor.shape(), tensor.dataType(), tensor.numElements())
+        }
+        return inputs to outputs
       }
-      val outputs = (0 until interpreter.outputTensorCount).map { index ->
-        val tensor = interpreter.getOutputTensor(index)
-        TensorShape(tensor.shape(), tensor.dataType(), tensor.numElements())
+    } catch (e: IllegalArgumentException) {
+      // The bundled TFLite Java runtime's DataType enum has no FLOAT16 entry, so it throws
+      // "DataType error: DataType 10 is not recognized in Java" for models with FLOAT16 tensors.
+      if (e.message?.contains("DataType 10") == true) {
+        throw IllegalStateException(
+          "This model contains a FLOAT16 tensor, which the bundled TFLite Java runtime used for " +
+            "tensor inspection cannot introspect (only FLOAT32/INT32/UINT8/INT8/BOOL/INT64 are " +
+            "recognized). Use the FLOAT32 variant of this model instead.",
+          e,
+        )
       }
-      return inputs to outputs
+      throw e
     }
   }
 
@@ -317,6 +341,9 @@ private fun AcceleratorChoice.toLitertAccelerator() = when (this) {
 }
 
 private fun AcceleratorChoice.toCompiledModelOptions(
+  cpuThreadCount: Int,
+  cpuKernelMode: CpuKernelMode,
+  xnnpackFlags: Int,
   gpuPrecision: CompiledModel.GpuOptions.Precision,
   gpuBackend: CompiledModel.GpuOptions.Backend,
   gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -326,7 +353,13 @@ private fun AcceleratorChoice.toCompiledModelOptions(
   gpuInfiniteFloatCapping: Boolean,
 ): CompiledModel.Options {
   val litertAccelerator = toLitertAccelerator()
+  require(cpuKernelMode == CpuKernelMode.XNNPACK) {
+    "The LiteRT Java API supports only XNNPACK kernel mode"
+  }
   val options = CompiledModel.Options(litertAccelerator)
+  if (litertAccelerator == Accelerator.CPU) {
+    options.cpuOptions = CompiledModel.CpuOptions(cpuThreadCount, xnnpackFlags, null)
+  }
   if (litertAccelerator == Accelerator.GPU) {
     options.gpuOptions = CompiledModel.GpuOptions(
       precision = gpuPrecision,

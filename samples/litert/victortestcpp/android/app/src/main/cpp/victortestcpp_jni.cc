@@ -179,7 +179,8 @@ void RunBufferSet(Session& session, BufferSet& buffers) {
 }
 
 Expected<std::unique_ptr<Session>> CreateSession(
-    const std::string& model_path, int accelerator, int precision, int backend,
+  const std::string& model_path, int accelerator, int cpu_thread_count,
+  int cpu_kernel_mode, int xnnpack_flags, int precision, int backend,
     int priority, int storage_type, bool prefer_texture_weights,
     bool constant_tensor_sharing, bool infinite_float_capping,
     const std::string& input_file_path, const std::string& output_file_path) {
@@ -189,6 +190,17 @@ Expected<std::unique_ptr<Session>> CreateSession(
   const auto hardware = accelerator == 1 ? HwAccelerators::kGpu
                                          : HwAccelerators::kCpu;
   LITERT_RETURN_IF_ERROR(options.SetHardwareAccelerators(hardware));
+  if (accelerator == 0) {
+    LITERT_ASSIGN_OR_RETURN(auto& cpu, options.GetCpuOptions());
+    LITERT_RETURN_IF_ERROR(cpu.SetNumThreads(cpu_thread_count));
+    const auto kernel_mode = cpu_kernel_mode == 0
+                                 ? kLiteRtCpuKernelModeXnnpack
+                                 : cpu_kernel_mode == 1
+                                       ? kLiteRtCpuKernelModeBuiltin
+                                       : kLiteRtCpuKernelModeReference;
+    LITERT_RETURN_IF_ERROR(cpu.SetKernelMode(kernel_mode));
+    LITERT_RETURN_IF_ERROR(cpu.SetXNNPackFlags(xnnpack_flags));
+  }
 
   if (accelerator == 1) {
     LITERT_ASSIGN_OR_RETURN(auto& gpu, options.GetGpuOptions());
@@ -247,12 +259,15 @@ std::string JavaStringOrEmpty(JNIEnv* env, jstring value) {
 }
 
 extern "C" JNIEXPORT jlong JNICALL NativePrepare(
-    JNIEnv* env, jobject, jstring model_path, jint accelerator, jint precision,
+  JNIEnv* env, jobject, jstring model_path, jint accelerator,
+  jint cpu_thread_count, jint cpu_kernel_mode, jint xnnpack_flags,
+  jint precision,
     jint backend, jint priority, jint storage_type, jboolean prefer_texture_weights,
     jboolean constant_tensor_sharing, jboolean infinite_float_capping,
     jstring input_file_path, jstring output_file_path) {
   const char* path = env->GetStringUTFChars(model_path, nullptr);
-  auto session = CreateSession(path, accelerator, precision, backend, priority,
+  auto session = CreateSession(path, accelerator, cpu_thread_count, cpu_kernel_mode,
+                               xnnpack_flags, precision, backend, priority,
                                storage_type, prefer_texture_weights,
                                constant_tensor_sharing, infinite_float_capping,
                                JavaStringOrEmpty(env, input_file_path),
@@ -340,7 +355,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
       "com/google/ai/edge/examples/victortestcpp/NativeModelRunner");
   if (runner == nullptr) return JNI_ERR;
   const JNINativeMethod methods[] = {
-      {"nativePrepare", "(Ljava/lang/String;IIIIIZZZLjava/lang/String;Ljava/lang/String;)J", reinterpret_cast<void*>(NativePrepare)},
+      {"nativePrepare", "(Ljava/lang/String;IIIIIIIIZZZLjava/lang/String;Ljava/lang/String;)J", reinterpret_cast<void*>(NativePrepare)},
       {"nativeTensorDescriptions", "(J)[Ljava/lang/String;", reinterpret_cast<void*>(NativeTensorDescriptions)},
       {"nativeRun", "(J)J", reinterpret_cast<void*>(NativeRun)},
       {"nativeRunConcurrent", "(JI)D", reinterpret_cast<void*>(NativeRunConcurrent)},

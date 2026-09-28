@@ -121,6 +121,12 @@ abstract class ShellBenchmarkInstrumentation : Instrumentation() {
 
         appendResult("run_mode", config.runMode.name)
         appendResult("accelerator", config.accelerator.name)
+        appendResult("cpu_thread_count", config.cpuThreadCount.toString())
+        appendResult("cpu_kernel_mode", config.cpuKernelMode.name)
+        appendResult("xnnpack_flags", config.xnnpackFlags.toString())
+        XnnpackFlag.entries.forEach { flag ->
+          appendResult("xnnpack_${flag.name.lowercase()}", (config.xnnpackFlags and flag.bit != 0).toString())
+        }
         appendResult("gpu_precision", config.gpuPrecision.name)
         appendResult("gpu_backend", config.gpuBackend.name)
         appendResult("gpu_priority", config.gpuPriority.name)
@@ -160,6 +166,9 @@ data class ShellBenchmarkConfig(
   val inputFileUri: Uri?,
   val outputFileUri: Uri?,
   val accelerator: AcceleratorChoice,
+  val cpuThreadCount: Int,
+  val cpuKernelMode: CpuKernelMode,
+  val xnnpackFlags: Int,
   val gpuPrecision: CompiledModel.GpuOptions.Precision,
   val gpuBackend: CompiledModel.GpuOptions.Backend,
   val gpuPriority: CompiledModel.GpuOptions.Priority,
@@ -190,6 +199,11 @@ data class ShellBenchmarkConfig(
         inputFileUri = arguments.getString("input")?.let(::parseShellUri),
         outputFileUri = arguments.getString("output")?.let(::parseShellUri),
         accelerator = enumExtra(arguments, "accelerator", defaults.accelerator),
+        cpuThreadCount = arguments.getIntExtra("cpu_thread_count", defaults.cpuThreadCount).also {
+          require(it > 0) { "cpu_thread_count must be greater than 0" }
+        },
+        cpuKernelMode = enumExtra(arguments, "cpu_kernel_mode", defaults.cpuKernelMode),
+        xnnpackFlags = xnnpackFlagsExtra(arguments, defaults.xnnpackFlags),
         gpuPrecision = enumExtra(arguments, "gpu_precision", defaults.gpuPrecision),
         gpuBackend = enumExtra(arguments, "gpu_backend", defaults.gpuBackend),
         gpuPriority = enumExtra(arguments, "gpu_priority", defaults.gpuPriority),
@@ -207,6 +221,27 @@ data class ShellBenchmarkConfig(
       val value = arguments.getString(name) ?: return default
       return enumValues<T>().firstOrNull { it.name.equals(value, ignoreCase = true) }
         ?: error("Invalid $name=$value. Expected one of: ${enumValues<T>().joinToString { it.name }}")
+    }
+
+    private fun xnnpackFlagsExtra(arguments: Bundle, default: Int): Int {
+      var flags = arguments.getIntExtra("xnnpack_flags", default)
+      XnnpackFlag.entries.forEach { flag ->
+        val argumentName = "xnnpack_${flag.name.lowercase()}"
+        if (arguments.containsKey(argumentName)) {
+          flags = if (arguments.getBooleanExtra(argumentName, false)) {
+            flags or flag.bit
+          } else {
+            flags and flag.bit.inv()
+          }
+        }
+      }
+      if ((flags and XnnpackFlag.ENABLE_SUBGRAPH_RESHAPING.bit) != 0) {
+        flags = flags and XnnpackFlag.DISABLE_SUBGRAPH_RESHAPING.bit.inv()
+      }
+      if ((flags and XnnpackFlag.DISABLE_SUBGRAPH_RESHAPING.bit) != 0) {
+        flags = flags and XnnpackFlag.ENABLE_SUBGRAPH_RESHAPING.bit.inv()
+      }
+      return flags
     }
 
     private fun Bundle.getIntExtra(name: String, default: Int): Int {
@@ -257,6 +292,9 @@ suspend fun runShellBenchmark(
       config.modelUri,
       config.modelDisplayName,
       config.accelerator,
+      config.cpuThreadCount,
+      config.cpuKernelMode,
+      config.xnnpackFlags,
       config.gpuPrecision,
       config.gpuBackend,
       config.gpuPriority,
