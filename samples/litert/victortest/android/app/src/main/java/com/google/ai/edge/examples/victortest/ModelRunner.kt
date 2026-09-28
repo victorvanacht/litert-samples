@@ -130,19 +130,20 @@ class ModelRunner(private val context: Context) : InferenceRunner {
     val prepared = prepareModel(uri, displayName, accelerator, cpuThreadCount, cpuKernelMode, xnnpackFlags, gpuPrecision, gpuBackend, gpuPriority, gpuBufferStorageType, gpuPreferTextureWeights, gpuConstantTensorSharing, gpuInfiniteFloatCapping, onLog)
     try {
       val captureOutput = outputFileUri != null
+      val effectiveConcurrency = if (accelerator == AcceleratorChoice.GPU) 1 else concurrency
       val slots =
-        List(concurrency) {
+        List(effectiveConcurrency) {
           val inputBuffers = prepared.model.createInputBuffers()
           val outputBuffers = prepared.model.createOutputBuffers()
           writeInputs(inputBuffers, prepared.inputShapes, inputFileUri)
           inputBuffers to outputBuffers
         }
-      onLog("Allocated $concurrency concurrent buffer set(s)")
+      onLog("Allocated $effectiveConcurrency concurrent buffer set(s)")
 
       val completedCount = AtomicLong(0)
       val lastOutputBytes = AtomicReference<List<ByteArray>?>(null)
       val startNanos = System.nanoTime()
-      onLog("Starting asynchronous inference loop with $concurrency in-flight execution(s)")
+      onLog("Starting asynchronous inference loop with $effectiveConcurrency in-flight execution(s)")
 
       coroutineScope {
         launch {

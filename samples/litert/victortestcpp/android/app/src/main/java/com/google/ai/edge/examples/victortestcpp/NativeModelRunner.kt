@@ -11,6 +11,7 @@ import com.google.ai.edge.litert.CompiledModel
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
@@ -37,7 +38,10 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     gpuInfiniteFloatCapping: Boolean,
     inputFileUri: Uri?,
     outputFileUri: Uri?,
+    warmupRuns: Int,
+    deferOutputWrites: Boolean,
     onLog: suspend (String) -> Unit,
+    onReady: suspend () -> Unit,
     onResult: suspend (ModelRunResult) -> Unit,
   ): Unit = withContext(Dispatchers.IO) {
     val modelFile = copyToCache(uri, displayName)
@@ -45,7 +49,7 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     val outputFile = outputFileUri?.let { File.createTempFile("victortestcpp_out_", "_$displayName", context.cacheDir) }
     val handle = nativePrepare(
       modelFile.absolutePath,
-      if (accelerator == AcceleratorChoice.GPU) 1 else 0,
+      accelerator.toNativeValue(),
       cpuThreadCount,
       cpuKernelMode.ordinal,
       xnnpackFlags,
@@ -59,23 +63,41 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
       inputFile?.absolutePath,
       outputFile?.absolutePath,
     )
+    var hasMeasuredInference = false
     try {
       val tensorDescriptions = nativeTensorDescriptions(handle).toList()
       onLog("Compiled model in C++")
       for (description in tensorDescriptions) onLog(description)
+      repeat(warmupRuns) {
+        currentCoroutineContext().ensureActive()
+        nativeRun(handle)
+      }
+      currentCoroutineContext().ensureActive()
+      onReady()
       var iteration = 0
       while (currentCoroutineContext().isActive) {
         iteration++
         val elapsedMillis = nativeRun(handle)
-        if (outputFileUri != null && outputFile != null) copyOutputToUri(outputFile, outputFileUri)
+        hasMeasuredInference = true
+        if (outputFileUri != null && outputFile != null && !deferOutputWrites) {
+          nativeWriteOutputs(handle)
+          copyOutputToUri(outputFile, outputFileUri)
+        }
         onLog("Inference #$iteration: $elapsedMillis ms")
         onResult(ModelRunResult(displayName, elapsedMillis, tensorDescriptions))
       }
     } finally {
-      nativeClose(handle)
-      modelFile.delete()
-      inputFile?.delete()
-      outputFile?.delete()
+      try {
+        if (deferOutputWrites && hasMeasuredInference && outputFileUri != null && outputFile != null) {
+          nativeWriteOutputs(handle)
+          copyOutputToUri(outputFile, outputFileUri)
+        }
+      } finally {
+        nativeClose(handle)
+        modelFile.delete()
+        inputFile?.delete()
+        outputFile?.delete()
+      }
     }
   }
 
@@ -102,9 +124,10 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
     val modelFile = copyToCache(uri, displayName)
     val inputFile = inputFileUri?.let { copyToCache(it, "input_$displayName") }
     val outputFile = outputFileUri?.let { File.createTempFile("victortestcpp_out_", "_$displayName", context.cacheDir) }
+    val effectiveConcurrency = if (accelerator == AcceleratorChoice.GPU) 1 else concurrency
     val handle = nativePrepare(
       modelFile.absolutePath,
-      if (accelerator == AcceleratorChoice.GPU) 1 else 0,
+      accelerator.toNativeValue(),
       cpuThreadCount,
       cpuKernelMode.ordinal,
       xnnpackFlags,
@@ -123,7 +146,7 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
       onLog("Compiled model in C++")
       for (description in tensorDescriptions) onLog(description)
       while (currentCoroutineContext().isActive) {
-        val rate = nativeRunConcurrent(handle, concurrency)
+        val rate = nativeRunConcurrent(handle, effectiveConcurrency)
         if (outputFileUri != null && outputFile != null) copyOutputToUri(outputFile, outputFileUri)
         onLog("Throughput: %.1f inferences/s".format(rate))
         onThroughput(ThroughputResult(rate, tensorDescriptions))
@@ -163,6 +186,8 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
 
   private external fun nativeRun(handle: Long): Long
 
+  private external fun nativeWriteOutputs(handle: Long)
+
   private external fun nativeRunConcurrent(handle: Long, concurrency: Int): Double
 
   private external fun nativeClose(handle: Long)
@@ -178,5 +203,11 @@ class NativeModelRunner(private val context: Context) : InferenceRunner {
       file.outputStream().use { output -> input.copyTo(output) }
     }
     return file
+  }
+
+  private fun AcceleratorChoice.toNativeValue() = when (this) {
+    AcceleratorChoice.CPU -> 0
+    AcceleratorChoice.GPU -> 1
+    AcceleratorChoice.CPU_GPU -> 2
   }
 }
