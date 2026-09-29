@@ -27,13 +27,17 @@ android {
   namespace = "com.google.ai.edge.examples.modelrunner.common"
   compileSdk = 36
 
-  defaultConfig { minSdk = 23 }
+  defaultConfig {
+    minSdk = 23
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+  }
 
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
   }
   buildFeatures { compose = true }
+  testOptions { targetSdk = 33 }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8) } }
@@ -53,4 +57,6 @@ dependencies {
   }
   implementation(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2"))
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android")
+  androidTestImplementation(libs.androidx.junit)
+  androidTestImplementation(libs.androidx.espresso.core)
 }

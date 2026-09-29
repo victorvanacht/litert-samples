@@ -63,6 +63,10 @@ fun ModelRunnerScreen(
   onClearInputFile: () -> Unit,
   onChooseOutputFile: () -> Unit,
   onClearOutputFile: () -> Unit,
+  onChooseCpuOutputFile: () -> Unit,
+  onClearCpuOutputFile: () -> Unit,
+  onChooseGpuOutputFile: () -> Unit,
+  onClearGpuOutputFile: () -> Unit,
   onSelectAccelerator: (AcceleratorChoice) -> Unit,
   onSetCpuThreadCount: (Int) -> Unit,
   onSelectCpuKernelMode: (CpuKernelMode) -> Unit,
@@ -95,17 +99,42 @@ fun ModelRunnerScreen(
         onChoose = onChooseInputFile,
         onClear = onClearInputFile,
       )
-      FileSelector(
-        label = "Output tensor file",
-        fileName = uiState.outputFileName,
-        placeholder = "Discarded (default)",
-        chooseLabel = "Choose output file",
-        onChoose = onChooseOutputFile,
-        onClear = onClearOutputFile,
-      )
-      RunModeSelector(uiState.runMode, onSelectRunMode)
+      if (uiState.accelerator == AcceleratorChoice.CPU_GPU) {
+        FileSelector(
+          label = "CPU output tensor file",
+          fileName = uiState.cpuOutputFileName,
+          placeholder = "Discarded (default)",
+          chooseLabel = "Choose CPU output file",
+          onChoose = onChooseCpuOutputFile,
+          onClear = onClearCpuOutputFile,
+        )
+        FileSelector(
+          label = "GPU output tensor file",
+          fileName = uiState.gpuOutputFileName,
+          placeholder = "Discarded (default)",
+          chooseLabel = "Choose GPU output file",
+          onChoose = onChooseGpuOutputFile,
+          onClear = onClearGpuOutputFile,
+        )
+      } else {
+        FileSelector(
+          label = "Output tensor file",
+          fileName = uiState.outputFileName,
+          placeholder = "Discarded (default)",
+          chooseLabel = "Choose output file",
+          onChoose = onChooseOutputFile,
+          onClear = onClearOutputFile,
+        )
+        RunModeSelector(uiState.runMode, onSelectRunMode)
+      }
+      if (uiState.accelerator == AcceleratorChoice.CPU_GPU &&
+        ((uiState.cpuOutputFileUri == null) != (uiState.gpuOutputFileUri == null) ||
+          (uiState.cpuOutputFileUri != null && uiState.cpuOutputFileUri == uiState.gpuOutputFileUri))
+      ) {
+        Text("Choose two distinct output files, or leave both unset", color = MaterialTheme.colors.error)
+      }
       AcceleratorSelector(uiState.accelerator, onSelectAccelerator)
-      if (uiState.accelerator == AcceleratorChoice.CPU) {
+      if (uiState.accelerator != AcceleratorChoice.GPU) {
         CpuKernelModeSelector(uiState.cpuKernelMode, supportedCpuKernelModes, onSelectCpuKernelMode)
         if (uiState.cpuKernelMode == CpuKernelMode.XNNPACK) {
           CpuThreadCountField(uiState.cpuThreadCount, onSetCpuThreadCount)
@@ -117,7 +146,8 @@ fun ModelRunnerScreen(
             )
           }
         }
-      } else {
+      }
+      if (uiState.accelerator != AcceleratorChoice.CPU) {
         GpuPrecisionSelector(uiState.gpuPrecision, onSelectGpuPrecision)
         GpuBackendSelector(uiState.gpuBackend, onSelectGpuBackend)
         GpuPrioritySelector(uiState.gpuPriority, onSelectGpuPriority)
@@ -128,7 +158,10 @@ fun ModelRunnerScreen(
       }
       Button(
         onClick = onRunModel,
-        enabled = uiState.selectedModelId != null,
+        enabled = uiState.selectedModelId != null &&
+          (uiState.accelerator != AcceleratorChoice.CPU_GPU ||
+            ((uiState.cpuOutputFileUri == null) == (uiState.gpuOutputFileUri == null) &&
+              (uiState.cpuOutputFileUri == null || uiState.cpuOutputFileUri != uiState.gpuOutputFileUri))),
         modifier = Modifier.fillMaxWidth(),
       ) { Text(if (uiState.isRunning) "Stop running model" else "Run model") }
       LogPanel(uiState.logLines)
@@ -136,7 +169,14 @@ fun ModelRunnerScreen(
         modifier = Modifier.fillMaxWidth().height(220.dp),
         contentAlignment = Alignment.Center,
       ) {
-        when (uiState.runMode) {
+        if (uiState.accelerator == AcceleratorChoice.CPU_GPU) {
+          uiState.inferencesPerSecond?.let { rate ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+              Text("%.1f inferences/s".format(rate), fontSize = 48.sp, style = MaterialTheme.typography.h4)
+              Text("CPU ${uiState.cpuCompletedRuns} | GPU ${uiState.gpuCompletedRuns}", fontSize = 20.sp)
+            }
+          }
+        } else when (uiState.runMode) {
           RunMode.SYNCHRONOUS ->
             uiState.inferenceTime?.let { latestTime ->
               Column(horizontalAlignment = Alignment.CenterHorizontally) {

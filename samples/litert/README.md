@@ -11,7 +11,14 @@ Use this interface for scripts that need to:
 - Run a fixed number of synchronous inference runs.
 - Ignore warmup runs.
 - Read back the average inference time and the individual measured run times.
+- Run independent CPU and GPU workers together and measure aggregate throughput.
 - Verify exactly which options were used for the run.
+
+`accelerator=CPU_GPU` starts one independently compiled synchronous model on CPU
+and one on GPU. Both workers perform their warmup runs before measurement starts.
+The reported throughput is the combined number of completed inferences per second.
+In this mode, `run_mode` is accepted for compatibility but ignored. Use
+`cpu_output` and `gpu_output` for separate output files; provide both or neither.
 
 ## Packages and instrumentation components
 
@@ -111,6 +118,33 @@ adb shell am instrument -w \
 
 The same command works with `victortestcpp` after replacing the package and instrumentation component. Named flags are merged into the integer `xnnpack_flags` bitmask. For advanced use, set the bitmask directly with a decimal integer; a named flag takes precedence for its individual bit.
 
+## CPU+GPU throughput example
+
+Run independent CPU and GPU models with a shared measured completion limit. The
+`run_mode` value is ignored for `CPU_GPU`; `SYNCHRONOUS` and `ASYNCHRONOUS` both
+select paired throughput mode. `warmup_runs` applies independently to each worker.
+
+```sh
+adb shell am instrument -w \
+	-e model /sdcard/Android/data/com.google.ai.edge.examples.victortest/files/models/yourmodel.tflite \
+	-e model_display_name yourmodel.tflite \
+	-e runs 100 \
+	-e warmup_runs 5 \
+	-e run_mode ASYNCHRONOUS \
+	-e accelerator CPU_GPU \
+	-e cpu_thread_count 16 \
+	-e cpu_kernel_mode XNNPACK \
+	-e gpu_precision FP16 \
+	-e gpu_backend OPENCL \
+	-e cpu_output /sdcard/Android/data/com.google.ai.edge.examples.victortest/files/outputs/cpu.bin \
+	-e gpu_output /sdcard/Android/data/com.google.ai.edge.examples.victortest/files/outputs/gpu.bin \
+	com.google.ai.edge.examples.victortest/.ShellBenchmarkInstrumentation
+```
+
+`runs` is the shared aggregate measured limit, not a per-device limit. The CPU
+and GPU output paths must be different. For `victortestcpp`, replace the package
+and instrumentation component in the command.
+
 ## Command-line options
 
 All options are passed with `adb shell am instrument -w -e <name> <value> ...`. Enum values are case-insensitive. Boolean values accept `true`, `false`, `1`, `0`, `yes`, `no`, `y`, `n`, `on`, and `off`.
@@ -120,11 +154,13 @@ All options are passed with `adb shell am instrument -w -e <name> <value> ...`. 
 | `model` | `asset://selfie_multiclass.tflite` | `asset://...`, `file://...`, or a raw file path | Model to benchmark. Values without `://` are treated as file paths and are reported back as `file:///...`. For custom files, push into the app-specific external files directory first. |
 | `model_display_name` | Derived from `model` | Any string | Human-readable model name passed to the runner and echoed in the result. Usually the `.tflite` file name. |
 | `input` | Empty | `asset://...`, `file://...`, or a raw file path | Optional raw input data file. If omitted, random input tensors are generated. If provided, bytes are consumed sequentially across input tensors and short files are zero-padded. |
-| `output` | Empty | `file://...` or a raw file path | Optional output path. If omitted, outputs are read back for synchronization but discarded. If provided, output tensors are written as concatenated raw bytes. Prefer the app-specific external files directory. |
-| `runs` | `1` | Integer greater than `0` | Number of measured inference runs. These runs are included in `total_inference_time_ms`, `average_inference_time_ms`, and `inference_times_ms`. |
-| `warmup_runs` | `0` | Integer greater than or equal to `0` | Number of initial inference runs to execute before measuring. Warmup runs are not included in the reported timing metrics. |
-| `run_mode` | `SYNCHRONOUS` | `SYNCHRONOUS` | Latency benchmarking currently supports synchronous mode only. `ASYNCHRONOUS` is a UI throughput mode and is rejected by this command-line benchmark. |
-| `accelerator` | `GPU` | `CPU`, `GPU` | Accelerator used to compile and run the model. GPU-specific options are only applied when `accelerator=GPU`. |
+| `output` | Empty | `file://...` or a raw file path | Optional output path for `CPU` or `GPU`. If omitted, outputs are read back for synchronization but discarded. For `CPU_GPU`, use `cpu_output` and `gpu_output` instead. |
+| `cpu_output` | Empty | `file://...` or a raw file path | CPU worker output path for `CPU_GPU`. Must be supplied together with a distinct `gpu_output` path. |
+| `gpu_output` | Empty | `file://...` or a raw file path | GPU worker output path for `CPU_GPU`. Must be supplied together with a distinct `cpu_output` path. |
+| `runs` | `1` | Integer greater than `0` | For `CPU`/`GPU`, number of measured inference runs. For `CPU_GPU`, the shared aggregate completion limit. |
+| `warmup_runs` | `0` | Integer greater than or equal to `0` | Initial runs excluded from measurement. For `CPU_GPU`, each worker performs this many warmup runs. |
+| `run_mode` | `SYNCHRONOUS` | `SYNCHRONOUS`, `ASYNCHRONOUS` for `CPU_GPU` | Single-device shell benchmarks use synchronous latency mode. In `CPU_GPU` mode, this value is ignored and paired throughput is used. |
+| `accelerator` | `GPU` | `CPU`, `GPU`, `CPU_GPU` | Accelerator selection. `CPU_GPU` creates independent CPU and GPU compiled models and reports aggregate throughput. |
 | `cpu_thread_count` | `16` | Integer greater than `0` | Number of XNNPACK CPU threads. Applied when `accelerator=CPU` and `cpu_kernel_mode=XNNPACK`. |
 | `cpu_kernel_mode` | `XNNPACK` | `XNNPACK`, `BUILTIN`, `REFERENCE` | CPU kernel implementation. `BUILTIN` and `REFERENCE` use LiteRT kernels instead of XNNPACK. |
 | `xnnpack_flags` | `0` | Decimal integer bitmask | Aggregate XNNPACK flag bitmask. Named `xnnpack_*` options below can set individual bits. |
@@ -150,6 +186,11 @@ All options are passed with `adb shell am instrument -w -e <name> <value> ...`. 
 ## Instrumentation output
 
 Successful runs print ordered `INSTRUMENTATION_RESULT` lines. The first block echoes the resolved files and run counts, the second block echoes execution options, and the third block reports status and timing metrics.
+
+For `CPU_GPU`, the result includes `effective_run_mode=PAIRED_THROUGHPUT`,
+`measured_inference_count`, `elapsed_time_ms`, `total_inferences_per_second`,
+`cpu_completed_runs`, and `gpu_completed_runs` instead of the single-device
+latency fields.
 
 Example:
 
@@ -179,6 +220,20 @@ INSTRUMENTATION_RESULT: tensor_descriptions=input 0: FLOAT32, [1, 480, 480, 3]; 
 INSTRUMENTATION_RESULT: total_inference_time_ms=993
 INSTRUMENTATION_RESULT: average_inference_time_ms=49.65
 INSTRUMENTATION_RESULT: inference_times_ms=[50, 50, 51, 51, 50, 50, 51, 50, 50, 50, 50, 51, 51, 50, 49, 49, 50, 47, 46, 47]
+```
+
+A paired throughput result looks like this:
+
+```text
+INSTRUMENTATION_RESULT: run_mode=ASYNCHRONOUS
+INSTRUMENTATION_RESULT: effective_run_mode=PAIRED_THROUGHPUT
+INSTRUMENTATION_RESULT: accelerator=CPU_GPU
+INSTRUMENTATION_RESULT: status=ok
+INSTRUMENTATION_RESULT: measured_inference_count=100
+INSTRUMENTATION_RESULT: elapsed_time_ms=2750
+INSTRUMENTATION_RESULT: total_inferences_per_second=36.36
+INSTRUMENTATION_RESULT: cpu_completed_runs=48
+INSTRUMENTATION_RESULT: gpu_completed_runs=52
 ```
 
 Failure output uses the same prefix and includes `status=error` plus an `error` message:
@@ -289,12 +344,20 @@ def main() -> None:
 		install_app(app_name)
 		remote_model = push_model(app_name, model)
 		results = run_benchmark(app_name, remote_model)
-		print(
-			app_name,
-			"average_ms=", results["average_inference_time_ms"],
-			"runs=", results["runs"],
-			"warmup_runs=", results["warmup_runs"],
-		)
+		if results["accelerator"] == "CPU_GPU":
+			print(
+				app_name,
+				"inferences_per_second=", results["total_inferences_per_second"],
+				"cpu_runs=", results["cpu_completed_runs"],
+				"gpu_runs=", results["gpu_completed_runs"],
+			)
+		else:
+			print(
+				app_name,
+				"average_ms=", results["average_inference_time_ms"],
+				"runs=", results["runs"],
+				"warmup_runs=", results["warmup_runs"],
+			)
 
 
 if __name__ == "__main__":
@@ -305,8 +368,14 @@ if __name__ == "__main__":
 
 - Run `adb devices` before starting and ensure exactly one expected device is connected, or pass `-s <serial>` to every `adb` command.
 - Use the same model path layout for both apps, but keep files under each app's own package directory.
-- Parse `average_inference_time_ms` as a floating-point number.
-- Parse `total_inference_time_ms` as an integer.
-- Parse `inference_times_ms` as a list of integer milliseconds if per-run analysis is needed.
+- For `CPU`/`GPU`, parse `average_inference_time_ms` as a floating-point number,
+  `total_inference_time_ms` as an integer, and `inference_times_ms` as a list of
+  integer milliseconds if per-run analysis is needed.
+- For `CPU_GPU`, parse `total_inferences_per_second` as a floating-point number,
+  `elapsed_time_ms` and `measured_inference_count` as integers, and inspect the
+  CPU/GPU completion counts separately when needed.
 - Compare `runs` and `warmup_runs` in the output with the requested values before accepting benchmark results.
-- For CPU/GPU comparisons, run separate commands with `accelerator=CPU` and `accelerator=GPU`; GPU-only options are still echoed, but only applied when GPU is selected.
+- For CPU/GPU comparisons, run separate commands with `accelerator=CPU` and
+	`accelerator=GPU`, then use `accelerator=CPU_GPU` for combined throughput.
+	GPU-only options are still echoed, but only applied when GPU is selected or
+	when it is one of the paired workers.

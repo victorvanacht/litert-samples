@@ -26,6 +26,7 @@ using litert::ElementType;
 using litert::Environment;
 using litert::Expected;
 using litert::GpuOptions;
+using litert::HwAcceleratorSet;
 using litert::HwAccelerators;
 using litert::Options;
 using litert::TensorBuffer;
@@ -187,10 +188,14 @@ Expected<std::unique_ptr<Session>> CreateSession(
   LITERT_ASSIGN_OR_RETURN(auto environment, Environment::Create({}));
 
   Options options;
-  const auto hardware = accelerator == 1 ? HwAccelerators::kGpu
-                                         : HwAccelerators::kCpu;
+  HwAcceleratorSet hardware(HwAccelerators::kCpu);
+  if (accelerator == 1) {
+    hardware = HwAcceleratorSet(HwAccelerators::kGpu);
+  } else if (accelerator == 2) {
+    hardware = HwAccelerators::kCpu | HwAccelerators::kGpu;
+  }
   LITERT_RETURN_IF_ERROR(options.SetHardwareAccelerators(hardware));
-  if (accelerator == 0) {
+  if (accelerator == 0 || accelerator == 2) {
     LITERT_ASSIGN_OR_RETURN(auto& cpu, options.GetCpuOptions());
     LITERT_RETURN_IF_ERROR(cpu.SetNumThreads(cpu_thread_count));
     const auto kernel_mode = cpu_kernel_mode == 0
@@ -202,7 +207,7 @@ Expected<std::unique_ptr<Session>> CreateSession(
     LITERT_RETURN_IF_ERROR(cpu.SetXNNPackFlags(xnnpack_flags));
   }
 
-  if (accelerator == 1) {
+  if (accelerator == 1 || accelerator == 2) {
     LITERT_ASSIGN_OR_RETURN(auto& gpu, options.GetGpuOptions());
     LITERT_RETURN_IF_ERROR(gpu.SetPrecision(
         static_cast<GpuOptions::Precision>(precision)));
@@ -300,11 +305,16 @@ extern "C" JNIEXPORT jlong JNICALL NativeRun(JNIEnv*, jobject, jlong handle) {
   RunBufferSet(*session, session->synchronous_buffers);
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - start);
+  return elapsed.count();
+}
+
+extern "C" JNIEXPORT void JNICALL NativeWriteOutputs(JNIEnv*, jobject,
+                                                       jlong handle) {
+  Session* session = GetSession(handle);
   if (!session->output_file_path.empty()) {
     WriteOutputsToFile(session->synchronous_buffers.outputs,
                        session->output_file_path);
   }
-  return elapsed.count();
 }
 
 extern "C" JNIEXPORT jdouble JNICALL NativeRunConcurrent(
@@ -358,6 +368,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
       {"nativePrepare", "(Ljava/lang/String;IIIIIIIIZZZLjava/lang/String;Ljava/lang/String;)J", reinterpret_cast<void*>(NativePrepare)},
       {"nativeTensorDescriptions", "(J)[Ljava/lang/String;", reinterpret_cast<void*>(NativeTensorDescriptions)},
       {"nativeRun", "(J)J", reinterpret_cast<void*>(NativeRun)},
+      {"nativeWriteOutputs", "(J)V", reinterpret_cast<void*>(NativeWriteOutputs)},
       {"nativeRunConcurrent", "(JI)D", reinterpret_cast<void*>(NativeRunConcurrent)},
       {"nativeClose", "(J)V", reinterpret_cast<void*>(NativeClose)},
   };
