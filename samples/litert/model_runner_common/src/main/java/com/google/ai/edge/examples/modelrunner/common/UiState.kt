@@ -17,16 +17,11 @@
 package com.google.ai.edge.examples.modelrunner.common
 
 import android.net.Uri
-import android.graphics.Color
-import androidx.camera.core.CameraSelector
 import androidx.compose.runtime.Immutable
 import com.google.ai.edge.litert.CompiledModel
 
 @Immutable
 data class UiState(
-  val mediaUri: Uri = Uri.EMPTY,
-  val overlayInfo: OverlayInfo? = null,
-  val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
   val models: List<ModelOption> = emptyList(),
   val selectedModelId: String? = null,
   val inputFileUri: Uri? = null,
@@ -101,13 +96,3 @@ data class ModelRunResult(
 )
 
 data class ThroughputResult(val inferencesPerSecond: Double, val tensorDescriptions: List<String>)
-
-@Immutable class OverlayInfo(val pixels: IntArray, val width: Int, val height: Int)
-
-@Immutable
-data class ColorLabel(val id: Int, val label: String, val rgbColor: Int) {
-  fun getColor(): Int {
-    return if (id == 0) Color.TRANSPARENT
-    else Color.argb(128, Color.red(rgbColor), Color.green(rgbColor), Color.blue(rgbColor))
-  }
-}

@@ -52,6 +52,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import com.google.ai.edge.litert.CompiledModel
 
+private val darkBlue = Color(0xFF050560)
+private val teal = Color(0xFF00c898)
+private val cyan = Color(0xFF5ce0e0)
+
+@Composable
+fun ApplicationTheme(content: @Composable () -> Unit) {
+  MaterialTheme(
+    colors = MaterialTheme.colors.copy(primary = darkBlue, secondary = teal, onSurface = teal),
+    content = content,
+  )
+}
+
 /** Full screen for both victortest and victortestcpp: model/file pickers, run controls, results, logs. */
 @Composable
 fun ModelRunnerScreen(

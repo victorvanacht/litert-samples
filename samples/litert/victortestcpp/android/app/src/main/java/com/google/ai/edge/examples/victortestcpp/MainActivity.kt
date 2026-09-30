@@ -28,10 +28,10 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.ai.edge.examples.modelrunner.common.ApplicationTheme
 import com.google.ai.edge.examples.modelrunner.common.MainViewModel
 import com.google.ai.edge.examples.modelrunner.common.ModelRunnerScreen
 import com.google.ai.edge.examples.modelrunner.common.ShellBenchmarkUiDriver
-import com.google.ai.edge.examples.modelrunner.common.view.ApplicationTheme
 
 // The Compose UI, UiState, and MainViewModel logic are shared with the victortest sample app in
 // the model_runner_common module. This Activity only wires up file pickers and this app's own
